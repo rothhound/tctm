@@ -1,0 +1,34 @@
+{
+  "name": "tctm",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev:web & npm run dev:api",
+    "dev:api": "npm run dev -w @tctm/api",
+    "dev:web": "npm run dev -w @tctm/web",
+    "build": "npm run build -w @tctm/web && npm run build -w @tctm/api",
+    "lint": "npm run lint -w @tctm/api && npm run lint -w @tctm/web",
+    "typecheck": "npm run typecheck -w @tctm/api && npm run typecheck -w @tctm/web",
+    "test": "npm run typecheck && npm run test:api && npm run test:web",
+    "test:api": "npm test -w @tctm/api",
+    "test:web": "npm test -w @tctm/web",
+    "test:e2e": "cypress run",
+    "db:create": "npm run db:create -w @tctm/api",
+    "db:drop": "npm run db:drop -w @tctm/api",
+    "db:migrate": "npm run db:migrate -w @tctm/api",
+    "db:seed": "npm run db:seed -w @tctm/api",
+    "db:seed:tasks": "npm run db:seed:tasks -w @tctm/api",
+    "db:setup": "npm run db:drop -w @tctm/api && npm run db:create -w @tctm/api && npm run db:migrate -w @tctm/api && npm run db:seed -w @tctm/api && npm run db:seed:tasks -w @tctm/api",
+    "db:generate": "npm run db:generate -w @tctm/api",
+    "db:studio": "npm run db:studio -w @tctm/api"
+  },
+  "devDependencies": {
+    "cypress": "^15.15.0",
+    "prettier": "^3.3.0",
+    "typescript": "^5.6.0"
+  }
+}

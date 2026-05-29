@@ -1,0 +1,11 @@
+{
+  "type": "reaction_added",
+  "user": "U0123456789",
+  "reaction": "dart",
+  "item": {
+    "type": "message",
+    "channel": "C0123456789",
+    "ts": "1716100000.000300"
+  },
+  "event_ts": "1716100000.000400"
+}

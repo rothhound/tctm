@@ -1,0 +1,1 @@
+-- no-op: 'none' enum value and default consolidated into 0000

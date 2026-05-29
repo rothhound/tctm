@@ -1,0 +1,9 @@
+{
+  "type": "message",
+  "channel": "C0123456789",
+  "channel_type": "channel",
+  "user": "U9876543210",
+  "text": "<@U0123456789> could you review the deck and share feedback?",
+  "ts": "1716100000.000200",
+  "event_ts": "1716100000.000200"
+}

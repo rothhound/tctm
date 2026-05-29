@@ -1,0 +1,9 @@
+{
+  "type": "message",
+  "channel": "D0123456789",
+  "channel_type": "im",
+  "user": "U9876543210",
+  "text": "Hey, can you send me the updated cap table for Acme by Friday?",
+  "ts": "1716100000.000100",
+  "event_ts": "1716100000.000100"
+}

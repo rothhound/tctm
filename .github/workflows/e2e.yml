@@ -1,0 +1,54 @@
+name: E2E
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  cypress:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: assistant
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 3s --health-retries 5
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build web
+        run: npm run build -w apps/web
+
+      - name: Cypress E2E
+        uses: cypress-io/github-action@v6
+        with:
+          start: npm run dev:web
+          wait-on: 'http://localhost:3000'
+          wait-on-timeout: 60
+          config-file: cypress.config.ts
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/assistant
+          REDIS_HOST: localhost
+          JWT_SECRET: ci-test-secret
+          AUTH_PASSWORD_HASH: $2a$10$placeholder
+          PARTNER_NAME: Test Partner
+          PARTNER_ROLE: Managing Partner
+          ANTHROPIC_API_KEY: sk-ant-test
+          SLACK_SIGNING_SECRET: test-secret

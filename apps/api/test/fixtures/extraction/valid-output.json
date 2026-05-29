@@ -1,0 +1,25 @@
+{
+  "tasks": [
+    {
+      "title": "Send updated Acme cap table to Roelof",
+      "description": "Sequoia needs it to finalize term sheet by Monday",
+      "type": "do",
+      "dueAtIso": "2026-05-22T17:00:00Z",
+      "entityRefs": [
+        { "mention": "Roelof", "entityId": "ent-roelof-001" },
+        { "mention": "Acme", "entityId": "ent-acme-001" }
+      ],
+      "sourceQuote": "Could you send over the updated cap table by EOD Friday?",
+      "signals": {
+        "explicitness": 0.95,
+        "actionability": 0.95,
+        "addressedToUser": 0.95,
+        "entityMatchConfidence": 0.9,
+        "temporalClarity": 0.85
+      },
+      "overallConfidence": 0.92,
+      "ambiguityFlags": []
+    }
+  ],
+  "noTask": false
+}

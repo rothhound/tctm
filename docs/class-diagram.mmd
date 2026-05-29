@@ -1,0 +1,678 @@
+%%{ init: { "theme": "dark", "themeVariables": { "fontSize": "14px" } } }%%
+classDiagram
+    direction TB
+
+    %% ──────────────────────────────────────────────
+    %% DATABASE SCHEMA (Drizzle Tables)
+    %% ──────────────────────────────────────────────
+
+    class signals {
+        <<table>>
+        +UUID id
+        +sourceEnum source
+        +string subSource
+        +string externalId
+        +string dedupKey
+        +string senderName
+        +string senderEmail
+        +string subject
+        +string body
+        +jsonb rawPayload
+        +signalStatusEnum status
+        +UUID taskId
+        +timestamp createdAt
+    }
+
+    class tasks {
+        <<table>>
+        +UUID id
+        +string title
+        +string description
+        +taskTypeEnum type
+        +taskStatusEnum status
+        +timestamp dueAt
+        +UUID[] entityIds
+        +jsonb extraction
+        +timestamp createdAt
+        +timestamp updatedAt
+    }
+
+    class entities {
+        <<table>>
+        +UUID id
+        +entityTypeEnum type
+        +string canonicalName
+        +string[] aliases
+        +string[] emails
+        +string[] slackIds
+        +string notionId
+        +jsonb metadata
+    }
+
+    class extractionFeedback {
+        <<table>>
+        +UUID id
+        +UUID taskId
+        +feedbackActionEnum action
+        +jsonb before
+        +jsonb after
+        +string reason
+        +timestamp createdAt
+    }
+
+    class sourceConfig {
+        <<table>>
+        +UUID id
+        +string subSource
+        +jsonb thresholds
+        +boolean enabled
+    }
+
+    class llmAuditLog {
+        <<table>>
+        +UUID id
+        +UUID signalId
+        +string purpose
+        +string model
+        +int inputTokens
+        +int outputTokens
+        +float latencyMs
+        +float costUsd
+        +jsonb input
+        +jsonb output
+        +timestamp createdAt
+    }
+
+    class oauthTokens {
+        <<table>>
+        +UUID id
+        +string provider
+        +string encryptedRefreshToken
+        +timestamp expiresAt
+    }
+
+    class pushSubscriptions {
+        <<table>>
+        +UUID id
+        +string endpoint
+        +string keysP256dh
+        +string keysAuth
+        +timestamp createdAt
+    }
+
+    class gmailWatchState {
+        <<table>>
+        +int id
+        +string historyId
+        +timestamp expiration
+    }
+
+    signals --> tasks : taskId FK
+    extractionFeedback --> tasks : taskId FK
+    llmAuditLog --> signals : signalId FK
+
+    %% ──────────────────────────────────────────────
+    %% CORE INFRASTRUCTURE
+    %% ──────────────────────────────────────────────
+
+    class AppModule {
+        <<NestJS Module>>
+    }
+
+    class DbModule {
+        <<Global Module>>
+        +Pool connectionPool
+        +Drizzle db
+    }
+
+    class QueuesModule {
+        <<Global Module>>
+        +Queue SIGNALS_EXTRACT
+        +Queue TASKS_DEDUPE
+        +Queue WAITING_ON_RESOLVE
+        +Queue GMAIL_WATCH_RENEW
+        +Queue GRANOLA_POLL
+    }
+
+    class AnthropicModule {
+        <<Global Module>>
+        +Anthropic client
+        +string EXTRACTOR_MODEL
+        +string JUDGE_MODEL
+        +string CLASSIFIER_MODEL
+    }
+
+    AppModule --> DbModule
+    AppModule --> QueuesModule
+    AppModule --> AnthropicModule
+
+    %% ──────────────────────────────────────────────
+    %% AUTH MODULE
+    %% ──────────────────────────────────────────────
+
+    class AuthModule {
+        <<NestJS Module>>
+    }
+
+    class AuthGuard {
+        <<Guard · CanActivate>>
+        +canActivate(context) bool
+    }
+
+    class AuthService {
+        -ConfigService config
+        +login(password) token
+        +verifyToken(token) payload
+    }
+
+    class PublicDecorator {
+        <<Decorator>>
+        +@Public()
+    }
+
+    AppModule --> AuthModule
+    AuthModule --> AuthGuard
+    AuthModule --> AuthService
+    AuthGuard --> AuthService : verifies tokens
+    AuthGuard ..> PublicDecorator : skips if @Public
+
+    %% ──────────────────────────────────────────────
+    %% EXTRACTION MODULE
+    %% ──────────────────────────────────────────────
+
+    class ExtractionModule {
+        <<NestJS Module>>
+    }
+
+    class ExtractorService {
+        -Anthropic anthropic
+        -Drizzle db
+        -EntitiesService entities
+        +extract(input) ExtractionResult
+        +estimateCostUsd(usage) number
+    }
+
+    class JudgeService {
+        -Anthropic anthropic
+        -Drizzle db
+        +judge(task, signalId) JudgeVerdict
+        +estimateCostUsd(usage) number
+    }
+
+    class SignalExtractProcessor {
+        <<WorkerHost>>
+        -Drizzle db
+        -ExtractorService extractor
+        -JudgeService judge
+        -TasksService tasks
+        -NotificationsService notifications
+        +process(job) void
+        -handleExtractedTask() void
+        -loadThresholds() Thresholds
+    }
+
+    AppModule --> ExtractionModule
+    ExtractionModule --> ExtractorService
+    ExtractionModule --> JudgeService
+    ExtractionModule --> SignalExtractProcessor
+    SignalExtractProcessor --> ExtractorService : extract tasks
+    SignalExtractProcessor --> JudgeService : QC verdict
+    SignalExtractProcessor --> TasksService : create tasks
+    SignalExtractProcessor --> NotificationsService : push alerts
+    ExtractorService --> EntitiesService : entity glossary
+
+    %% ──────────────────────────────────────────────
+    %% TASKS MODULE
+    %% ──────────────────────────────────────────────
+
+    class TasksModule {
+        <<NestJS Module>>
+    }
+
+    class TasksService {
+        -Drizzle db
+        +createFromExtraction(input) Task
+        +listByStatus(status) Task[]
+        +listInbox() Task[]
+        +listToday() Task[]
+        +listThisWeek() Task[]
+        +listWaitingOn() Task[]
+        +listReviewPending() Task[]
+        +findOne(id) Task
+        +getCounts() TaskCounts
+        +accept(id, newStatus) void
+        +edit(id, updates, reason) void
+        +dismiss(id, reason) void
+        +complete(id) void
+        +snooze(id, until) void
+    }
+
+    class TasksController {
+        <<Controller · /tasks>>
+        -TasksService service
+        +list(status) Task[]
+        +counts() TaskCounts
+        +findOne(id) Task
+        +accept(id, body) void
+        +edit(id, body) void
+        +dismiss(id, body) void
+        +complete(id) void
+        +snooze(id, body) void
+    }
+
+    AppModule --> TasksModule
+    TasksModule --> TasksService
+    TasksModule --> TasksController
+    TasksController --> TasksService
+
+    %% ──────────────────────────────────────────────
+    %% ENTITIES MODULE
+    %% ──────────────────────────────────────────────
+
+    class EntitiesModule {
+        <<NestJS Module>>
+    }
+
+    class EntitiesService {
+        -Drizzle db
+        -string glossaryCache
+        +renderGlossaryXml() string
+        +invalidateGlossaryCache() void
+        +resolveByEmail(email) Entity
+    }
+
+    class EntitiesController {
+        <<Controller · /entities>>
+        -EntitiesService service
+        +list() Entity[]
+        +findOne(id) Entity
+        +create(body) Entity
+        +update(id, body) Entity
+        +remove(id) void
+    }
+
+    AppModule --> EntitiesModule
+    EntitiesModule --> EntitiesService
+    EntitiesModule --> EntitiesController
+    EntitiesController --> EntitiesService
+
+    %% ──────────────────────────────────────────────
+    %% SIGNALS MODULE
+    %% ──────────────────────────────────────────────
+
+    class SignalsModule {
+        <<NestJS Module>>
+    }
+
+    class SignalsService {
+        -Drizzle db
+        +insertWithDedup(signal) Signal
+        +findById(id) Signal
+        +updateStatus(id, status) void
+    }
+
+    AppModule --> SignalsModule
+    SignalsModule --> SignalsService
+
+    %% ──────────────────────────────────────────────
+    %% GMAIL INGESTION
+    %% ──────────────────────────────────────────────
+
+    class GmailModule {
+        <<NestJS Module>>
+    }
+
+    class GmailService {
+        -Drizzle db
+        -Queue signalsExtractQueue
+        -ConfigService config
+        -EntitiesService entities
+        +processHistoryNotification(historyId) void
+        +processMessage(gmail, messageId) void
+        +fullSync24h(gmail) void
+        -extractBody(payload) string
+        -classifySubSource(email) string
+    }
+
+    class GmailWatchService {
+        <<@Cron EVERY_DAY_AT_3AM>>
+        -ConfigService config
+        -Drizzle db
+        +renewWatch() void
+    }
+
+    class GmailController {
+        <<Controller · @Public · /webhooks/gmail>>
+        -GmailService service
+        +push(body) void
+    }
+
+    AppModule --> GmailModule
+    GmailModule --> GmailService
+    GmailModule --> GmailWatchService
+    GmailModule --> GmailController
+    GmailController --> GmailService
+    GmailService --> EntitiesService : classify VIP
+
+    %% ──────────────────────────────────────────────
+    %% SLACK INGESTION
+    %% ──────────────────────────────────────────────
+
+    class SlackModule {
+        <<NestJS Module>>
+    }
+
+    class SlackIngestionService {
+        -ConfigService config
+        +toSignal(event) Signal
+        +fromMessage(event) Signal
+        +fromMention(event) Signal
+        +fromReaction(event) Signal
+        -lookupUser(userId) User
+        -lookupChannel(channelId) Channel
+    }
+
+    class SlackController {
+        <<Controller · @Public · /webhooks/slack>>
+        -SlackIngestionService service
+        -SignalsService signals
+        +events(body) void
+    }
+
+    AppModule --> SlackModule
+    SlackModule --> SlackIngestionService
+    SlackModule --> SlackController
+    SlackController --> SlackIngestionService
+    SlackController --> SignalsService : insert signal
+
+    %% ──────────────────────────────────────────────
+    %% NOTION INGESTION
+    %% ──────────────────────────────────────────────
+
+    class NotionModule {
+        <<NestJS Module>>
+    }
+
+    class NotionService {
+        -ConfigService config
+        +toSignal(event) Signal
+        +fromPageEvent(event) Signal
+        +fromCommentEvent(event) Signal
+    }
+
+    class NotionController {
+        <<Controller · @Public · /webhooks/notion>>
+        -NotionService service
+        +webhook(body) void
+    }
+
+    AppModule --> NotionModule
+    NotionModule --> NotionService
+    NotionModule --> NotionController
+    NotionController --> NotionService
+
+    %% ──────────────────────────────────────────────
+    %% AUDIT MODULE
+    %% ──────────────────────────────────────────────
+
+    class AuditModule {
+        <<NestJS Module>>
+    }
+
+    class AuditService {
+        -Drizzle db
+        +findBySignalId(signalId) AuditEntry[]
+        +findByPurpose(purpose) AuditEntry[]
+        +findRecent(limit) AuditEntry[]
+    }
+
+    class AuditController {
+        <<Controller · /audit>>
+        -AuditService service
+        +query(params) AuditEntry[]
+    }
+
+    AppModule --> AuditModule
+    AuditModule --> AuditService
+    AuditModule --> AuditController
+    AuditController --> AuditService
+
+    %% ──────────────────────────────────────────────
+    %% NOTIFICATIONS MODULE
+    %% ──────────────────────────────────────────────
+
+    class NotificationsModule {
+        <<NestJS Module>>
+    }
+
+    class NotificationsService {
+        -Drizzle db
+        -ConfigService config
+        +subscribe(endpoint, keys) void
+        +unsubscribe(endpoint) void
+        +sendPush(payload) void
+    }
+
+    class NotificationsController {
+        <<Controller · /push>>
+        -NotificationsService service
+        +subscribe(body) void
+        +unsubscribe(body) void
+    }
+
+    AppModule --> NotificationsModule
+    NotificationsModule --> NotificationsService
+    NotificationsModule --> NotificationsController
+    NotificationsController --> NotificationsService
+
+    %% ──────────────────────────────────────────────
+    %% HEALTH MODULE
+    %% ──────────────────────────────────────────────
+
+    class HealthController {
+        <<Controller · @Public · /health>>
+        -Drizzle db
+        -ConfigService config
+        +check() HealthStatus
+    }
+
+    AppModule --> HealthController
+
+    %% ──────────────────────────────────────────────
+    %% FRONTEND — STATE MANAGEMENT
+    %% ──────────────────────────────────────────────
+
+    class ReduxStore {
+        <<configureStore>>
+        +Reducer api
+        +Reducer auth
+    }
+
+    class ApiSlice {
+        <<RTK Query · /api>>
+        +login(password) LoginResponse
+        +getTasks(status) TaskDto[]
+        +getTaskCounts() TaskCounts
+        +getTask(id) TaskDto
+        +acceptTask(id, body) void
+        +dismissTask(id, body) void
+        +editTask(id, body) void
+        +completeTask(id) void
+        +snoozeTask(id, body) void
+        +getAuditLog(params) AuditEntry[]
+        +subscribePush(body) void
+        +unsubscribePush(body) void
+    }
+
+    class AuthSlice {
+        <<Redux Slice>>
+        +string token
+        +string expiresAt
+        +setCredentials(token, expiresAt)
+        +logout()
+    }
+
+    ReduxStore --> ApiSlice
+    ReduxStore --> AuthSlice
+
+    %% ──────────────────────────────────────────────
+    %% FRONTEND — PAGES
+    %% ──────────────────────────────────────────────
+
+    class AppRouter {
+        <<BrowserRouter>>
+    }
+
+    class RequireAuth {
+        <<Route Guard>>
+    }
+
+    class AppShell {
+        <<Layout>>
+        +Outlet children
+        +BottomNav nav
+    }
+
+    class LoginPage {
+        <<Page · /login>>
+    }
+    class InboxPage {
+        <<Page · /inbox>>
+    }
+    class ReviewPage {
+        <<Page · /review>>
+    }
+    class TodayPage {
+        <<Page · /today>>
+    }
+    class ThisWeekPage {
+        <<Page · /this-week>>
+    }
+    class WaitingOnPage {
+        <<Page · /waiting-on>>
+    }
+    class TaskDetailPage {
+        <<Page · /tasks/:id>>
+    }
+    class SettingsPage {
+        <<Page · /settings>>
+    }
+    class AuditLogPage {
+        <<Page · /settings/audit>>
+    }
+
+    AppRouter --> LoginPage
+    AppRouter --> RequireAuth
+    RequireAuth --> AppShell
+    RequireAuth --> AuthSlice : checks token
+    AppShell --> InboxPage
+    AppShell --> ReviewPage
+    AppShell --> TodayPage
+    AppShell --> ThisWeekPage
+    AppShell --> WaitingOnPage
+    AppShell --> TaskDetailPage
+    AppShell --> SettingsPage
+    AppShell --> AuditLogPage
+
+    %% ──────────────────────────────────────────────
+    %% FRONTEND — UI COMPONENTS
+    %% ──────────────────────────────────────────────
+
+    class TaskCard {
+        <<Component>>
+        +TaskDto task
+        +bool showActions
+        +bool showComplete
+    }
+
+    class ConfidenceBar {
+        <<Component>>
+        +ExtractionSignals signals
+    }
+
+    class SourceIcon {
+        <<Component>>
+        +SignalSource source
+    }
+
+    class WhyThisTask {
+        <<Component>>
+        +TaskExtraction extraction
+    }
+
+    class BottomNav {
+        <<Component>>
+        +TaskCounts counts
+    }
+
+    class EmptyState {
+        <<Component>>
+        +string message
+    }
+
+    class Modal {
+        <<Component>>
+    }
+
+    InboxPage --> TaskCard
+    ReviewPage --> TaskCard
+    TodayPage --> TaskCard
+    TaskCard --> SourceIcon
+    TaskCard --> WhyThisTask
+    TaskCard --> ApiSlice : mutations
+    TaskDetailPage --> ConfidenceBar
+    AppShell --> BottomNav
+    BottomNav --> ApiSlice : getTaskCounts
+    WhyThisTask --> ConfidenceBar
+
+    %% ──────────────────────────────────────────────
+    %% SHARED TYPES
+    %% ──────────────────────────────────────────────
+
+    class TaskDto {
+        <<Shared Type>>
+        +UUID id
+        +string title
+        +string description
+        +TaskType type
+        +TaskStatus status
+        +Date dueAt
+        +UUID[] entityIds
+        +TaskExtraction extraction
+    }
+
+    class ExtractionSignals {
+        <<Shared Type>>
+        +number explicitness
+        +number actionability
+        +number addressedToUser
+        +number entityMatchConfidence
+        +number temporalClarity
+    }
+
+    class JudgeVerdictType {
+        <<Shared Type>>
+        +string verdict
+        +string reason
+    }
+
+    class TaskExtraction {
+        <<Shared Type>>
+        +string sourceQuote
+        +number confidence
+        +ExtractionSignals signals
+        +string[] ambiguityFlags
+        +JudgeVerdictType judge
+    }
+
+    TaskDto --> TaskExtraction
+    TaskExtraction --> ExtractionSignals
+    TaskExtraction --> JudgeVerdictType
+
+    %% ──────────────────────────────────────────────
+    %% CROSS-LAYER CONNECTIONS
+    %% ──────────────────────────────────────────────
+
+    ApiSlice ..> TasksController : HTTP
+    ApiSlice ..> AuditController : HTTP
+    ApiSlice ..> NotificationsController : HTTP
