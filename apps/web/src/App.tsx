@@ -4,6 +4,7 @@ import { AppShell } from './components/layout/AppShell';
 import { LoginPage } from './pages/LoginPage';
 import { ActivePage } from './pages/ActivePage';
 import { ArchivePage } from './pages/ArchivePage';
+import { DonePage } from './pages/DonePage';
 import { ReportedPage } from './pages/ReportedPage';
 import { SnoozedPage } from './pages/SnoozedPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -22,6 +23,7 @@ export default function App() {
           <Route element={<AppShell />}>
             <Route path="/" element={<Navigate to="/active" replace />} />
             <Route path="/active" element={<ActivePage />} />
+            <Route path="/done" element={<DonePage />} />
             <Route path="/archive" element={<ArchivePage />} />
             <Route path="/reported" element={<ReportedPage />} />
             <Route path="/snoozed" element={<SnoozedPage />} />

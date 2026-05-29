@@ -48,10 +48,10 @@ describe('ReportedPage', () => {
     expect(container.querySelector('.animate-spin')).toBeInTheDocument();
   });
 
-  it('renders the heading with count when loaded', () => {
+  it('renders the heading when loaded (no count shown when empty)', () => {
     mockedQuery.mockReturnValue({ data: [], isLoading: false } as any);
     renderPage();
-    expect(screen.getByText('Reported (0)')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Reported' })).toBeInTheDocument();
   });
 
   it('sets the page title', () => {

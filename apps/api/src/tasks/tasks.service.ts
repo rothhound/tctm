@@ -129,6 +129,21 @@ export class TasksService {
       .orderBy(desc(tasks.archivedAt));
   }
 
+  async listDone() {
+    return this.db
+      .select()
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.status, 'done'),
+          eq(tasks.archived, false),
+          eq(tasks.reported, false),
+          isNull(tasks.parentTaskId),
+        ),
+      )
+      .orderBy(desc(tasks.completedAt));
+  }
+
   async listSnoozed() {
     const now = new Date();
     return this.db
@@ -334,6 +349,16 @@ export class TasksService {
     if (task.recurrence) {
       await this.createNextRecurrence(task);
     }
+  }
+
+  async uncomplete(taskId: string) {
+    const [task] = await this.db.select().from(tasks).where(eq(tasks.id, taskId));
+    if (!task) throw new NotFoundException('Task not found');
+
+    await this.db
+      .update(tasks)
+      .set({ status: 'pending', completedAt: null, updatedAt: new Date() })
+      .where(eq(tasks.id, taskId));
   }
 
   async snooze(taskId: string, until: string) {

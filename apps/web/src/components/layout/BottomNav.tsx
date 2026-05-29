@@ -10,6 +10,7 @@ export function BottomNav() {
       <div className="max-w-lg mx-auto flex">
         {[
           { to: '/active', label: 'Active' },
+          { to: '/done', label: 'Done' },
           { to: '/snoozed', label: 'Snoozed' },
           { to: '/archive', label: 'Archived' },
           { to: '/reported', label: 'Reported' },

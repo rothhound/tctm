@@ -7,9 +7,9 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Public()
-  @Post('login')
+  @Post('google')
   @HttpCode(HttpStatus.OK)
-  login(@Body() body: { password: string }) {
-    return this.authService.login(body.password);
+  loginWithGoogle(@Body() body: { idToken: string }) {
+    return this.authService.loginWithGoogle(body.idToken);
   }
 }

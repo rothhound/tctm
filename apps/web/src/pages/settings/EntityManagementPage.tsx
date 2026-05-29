@@ -60,6 +60,18 @@ export function EntityManagementPage() {
         </div>
       </div>
 
+      {/* Search — sticky above the scroll area */}
+      {(entities?.length ?? 0) > 5 && (
+        <div className="shrink-0 px-3 md:px-0 pb-2">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search entities..."
+            className="w-full px-3 py-2.5 rounded-md bg-[var(--color-surface)] border border-[var(--color-border)] text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] placeholder-[var(--color-text-muted)]"
+          />
+        </div>
+      )}
+
       <div className="overflow-y-auto flex-1 min-h-0 px-3 md:px-0 space-y-3">
         {/* Create form */}
         {showForm && (
@@ -104,16 +116,6 @@ export function EntityManagementPage() {
               Create
             </button>
           </div>
-        )}
-
-        {/* Search */}
-        {(entities?.length ?? 0) > 5 && (
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search entities..."
-            className="w-full px-3 py-2.5 rounded-md bg-[var(--color-surface)] border border-[var(--color-border)] text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] placeholder-[var(--color-text-muted)]"
-          />
         )}
 
         {/* List */}

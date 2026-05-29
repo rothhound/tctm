@@ -1,6 +1,6 @@
 import { join } from 'path';
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ServeStaticModule } from '@nestjs/serve-static';
@@ -9,6 +9,7 @@ import { QueuesModule } from './shared/queues.module';
 import { AnthropicModule } from './shared/anthropic.module';
 import { AuthModule } from './auth/auth.module';
 import { AuthGuard } from './auth/auth.guard';
+import { RefreshInterceptor } from './auth/refresh.interceptor';
 import { HealthModule } from './health/health.module';
 import { SignalsModule } from './signals/signals.module';
 import { EntitiesModule } from './entities/entities.module';
@@ -61,6 +62,7 @@ import { CalibrationModule } from './calibration/calibration.module';
   ],
   providers: [
     { provide: APP_GUARD, useClass: AuthGuard },
+    { provide: APP_INTERCEPTOR, useClass: RefreshInterceptor },
   ],
 })
 export class AppModule {}

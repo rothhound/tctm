@@ -1,84 +1,136 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { authSlice, setCredentials, logout } from './authSlice';
-
-const reducer = authSlice.reducer;
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 describe('authSlice', () => {
+  // We re-import the slice in each test because the initial state is
+  // computed once at module load from localStorage.
+
   beforeEach(() => {
     localStorage.clear();
+    vi.resetModules();
   });
 
-  describe('setCredentials', () => {
-    it('sets token and expiresAt in state', () => {
-      const state = reducer(
-        { token: null, expiresAt: null },
-        setCredentials({ token: 'abc123', expiresAt: '2026-06-01T00:00:00Z' }),
-      );
-
-      expect(state.token).toBe('abc123');
-      expect(state.expiresAt).toBe('2026-06-01T00:00:00Z');
-    });
-
-    it('persists token and expiresAt to localStorage', () => {
-      reducer(
-        { token: null, expiresAt: null },
-        setCredentials({ token: 'abc123', expiresAt: '2026-06-01T00:00:00Z' }),
-      );
-
-      expect(localStorage.getItem('token')).toBe('abc123');
-      expect(localStorage.getItem('expiresAt')).toBe('2026-06-01T00:00:00Z');
-    });
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
-  describe('logout', () => {
-    it('clears token and expiresAt from state', () => {
-      const state = reducer(
-        { token: 'abc123', expiresAt: '2026-06-01T00:00:00Z' },
-        logout(),
-      );
+  async function importFresh() {
+    const mod = await import('./authSlice');
+    return mod;
+  }
 
-      expect(state.token).toBeNull();
-      expect(state.expiresAt).toBeNull();
+  describe('loadInitialState (initial state from localStorage)', () => {
+    it('returns logged-out state when localStorage is empty', async () => {
+      const { authSlice } = await importFresh();
+      const state = authSlice.getInitialState();
+      expect(state).toEqual({ token: null, expiresAt: null });
     });
 
-    it('removes token and expiresAt from localStorage', () => {
-      localStorage.setItem('token', 'abc123');
-      localStorage.setItem('expiresAt', '2026-06-01T00:00:00Z');
+    it('hydrates token + expiresAt when both are valid and in the future', async () => {
+      const future = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      localStorage.setItem('token', 'jwt-abc');
+      localStorage.setItem('expiresAt', future);
 
-      reducer(
-        { token: 'abc123', expiresAt: '2026-06-01T00:00:00Z' },
-        logout(),
-      );
+      const { authSlice } = await importFresh();
+      expect(authSlice.getInitialState()).toEqual({ token: 'jwt-abc', expiresAt: future });
+    });
 
+    it('drops state and clears localStorage when expiresAt is in the past', async () => {
+      const past = new Date(Date.now() - 60_000).toISOString();
+      localStorage.setItem('token', 'jwt-abc');
+      localStorage.setItem('expiresAt', past);
+
+      const { authSlice } = await importFresh();
+      expect(authSlice.getInitialState()).toEqual({ token: null, expiresAt: null });
       expect(localStorage.getItem('token')).toBeNull();
       expect(localStorage.getItem('expiresAt')).toBeNull();
     });
+
+    it('drops state and clears localStorage when expiresAt is unparseable', async () => {
+      localStorage.setItem('token', 'jwt-abc');
+      localStorage.setItem('expiresAt', 'not-a-date');
+
+      const { authSlice } = await importFresh();
+      expect(authSlice.getInitialState()).toEqual({ token: null, expiresAt: null });
+      expect(localStorage.getItem('token')).toBeNull();
+    });
+
+    it('drops state and clears localStorage when only token is set (mismatch)', async () => {
+      localStorage.setItem('token', 'jwt-abc');
+
+      const { authSlice } = await importFresh();
+      expect(authSlice.getInitialState()).toEqual({ token: null, expiresAt: null });
+      expect(localStorage.getItem('token')).toBeNull();
+    });
+
+    it('returns logged-out state if localStorage access throws', async () => {
+      const orig = Storage.prototype.getItem;
+      Storage.prototype.getItem = vi.fn(() => { throw new Error('private mode'); });
+
+      const { authSlice } = await importFresh();
+      expect(authSlice.getInitialState()).toEqual({ token: null, expiresAt: null });
+
+      Storage.prototype.getItem = orig;
+    });
   });
 
-  describe('initialState', () => {
-    it('reads token and expiresAt from localStorage', () => {
-      localStorage.setItem('token', 'persisted-token');
-      localStorage.setItem('expiresAt', '2026-12-31T00:00:00Z');
+  describe('reducers', () => {
+    it('setCredentials updates state AND persists to localStorage', async () => {
+      const { authSlice, setCredentials } = await importFresh();
+      const next = authSlice.reducer(
+        { token: null, expiresAt: null },
+        setCredentials({ token: 'new-jwt', expiresAt: '2099-01-01T00:00:00Z' }),
+      );
+      expect(next).toEqual({ token: 'new-jwt', expiresAt: '2099-01-01T00:00:00Z' });
+      expect(localStorage.getItem('token')).toBe('new-jwt');
+      expect(localStorage.getItem('expiresAt')).toBe('2099-01-01T00:00:00Z');
+    });
 
-      // Re-import to pick up localStorage values in initialState.
-      // Since the module is already cached, we test by calling getInitialState().
-      // The slice was created at import time when localStorage was empty,
-      // so we verify the mechanism by checking the reducer with undefined state.
-      // Instead, we directly verify the slice reads localStorage by constructing
-      // a fresh slice inline.
-      const { createSlice } = require('@reduxjs/toolkit');
-      const freshSlice = createSlice({
-        name: 'auth',
-        initialState: {
-          token: localStorage.getItem('token'),
-          expiresAt: localStorage.getItem('expiresAt'),
-        },
-        reducers: {},
-      });
+    it('logout clears state AND localStorage', async () => {
+      localStorage.setItem('token', 'jwt');
+      localStorage.setItem('expiresAt', '2099-01-01T00:00:00Z');
+      const { authSlice, logout } = await importFresh();
+      const next = authSlice.reducer(
+        { token: 'jwt', expiresAt: '2099-01-01T00:00:00Z' },
+        logout(),
+      );
+      expect(next).toEqual({ token: null, expiresAt: null });
+      expect(localStorage.getItem('token')).toBeNull();
+      expect(localStorage.getItem('expiresAt')).toBeNull();
+    });
 
-      const state = freshSlice.getInitialState();
-      expect(state.token).toBe('persisted-token');
-      expect(state.expiresAt).toBe('2026-12-31T00:00:00Z');
+    it('setCredentials survives a throwing localStorage (private mode)', async () => {
+      const { authSlice, setCredentials } = await importFresh();
+      Storage.prototype.setItem = vi.fn(() => { throw new Error('quota exceeded'); });
+
+      const next = authSlice.reducer(
+        { token: null, expiresAt: null },
+        setCredentials({ token: 'jwt', expiresAt: '2099-01-01T00:00:00Z' }),
+      );
+      expect(next.token).toBe('jwt');
+    });
+  });
+
+  describe('selectIsAuthenticated', () => {
+    it('returns false when no token', async () => {
+      const { selectIsAuthenticated } = await importFresh();
+      expect(selectIsAuthenticated({ auth: { token: null, expiresAt: null } } as any)).toBe(false);
+    });
+
+    it('returns false when expiresAt is in the past', async () => {
+      const { selectIsAuthenticated } = await importFresh();
+      const past = new Date(Date.now() - 1000).toISOString();
+      expect(selectIsAuthenticated({ auth: { token: 'x', expiresAt: past } } as any)).toBe(false);
+    });
+
+    it('returns true when token is set and expiresAt is in the future', async () => {
+      const { selectIsAuthenticated } = await importFresh();
+      const future = new Date(Date.now() + 60_000).toISOString();
+      expect(selectIsAuthenticated({ auth: { token: 'x', expiresAt: future } } as any)).toBe(true);
+    });
+
+    it('returns false when expiresAt is unparseable', async () => {
+      const { selectIsAuthenticated } = await importFresh();
+      expect(selectIsAuthenticated({ auth: { token: 'x', expiresAt: 'not-a-date' } } as any)).toBe(false);
     });
   });
 });

@@ -36,6 +36,11 @@ export class TasksController {
     return this.tasks.listSnoozed();
   }
 
+  @Get('done')
+  done() {
+    return this.tasks.listDone();
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.tasks.findOne(id);
@@ -68,6 +73,11 @@ export class TasksController {
   @Post(':id/complete')
   complete(@Param('id') id: string) {
     return this.tasks.complete(id);
+  }
+
+  @Post(':id/uncomplete')
+  uncomplete(@Param('id') id: string) {
+    return this.tasks.uncomplete(id);
   }
 
   @Post(':id/snooze')

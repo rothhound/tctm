@@ -1,11 +1,14 @@
-import { Navigate, Outlet } from 'react-router-dom';
+import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAppSelector } from '../../store/hooks';
+import { selectIsAuthenticated } from '../../store/authSlice';
 
 export function RequireAuth() {
-  const token = useAppSelector((s) => s.auth.token);
+  const isAuthenticated = useAppSelector(selectIsAuthenticated);
+  const location = useLocation();
 
-  if (!token) {
-    return <Navigate to="/login" replace />;
+  if (!isAuthenticated) {
+    const target = location.pathname + location.search + location.hash;
+    return <Navigate to={`/login?from=${encodeURIComponent(target)}`} replace />;
   }
 
   return <Outlet />;

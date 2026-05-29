@@ -9,7 +9,7 @@ describe('AuthController', () => {
 
   beforeEach(async () => {
     authService = {
-      login: jest.fn(),
+      loginWithGoogle: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -20,19 +20,19 @@ describe('AuthController', () => {
     controller = module.get<AuthController>(AuthController);
   });
 
-  it('returns token on successful login', async () => {
+  it('returns token on successful Google login', async () => {
     const mockResult = { token: 'jwt-token', expiresAt: '2026-05-20T00:00:00Z' };
-    (authService.login as jest.Mock).mockResolvedValue(mockResult);
+    (authService.loginWithGoogle as jest.Mock).mockResolvedValue(mockResult);
 
-    const result = await controller.login({ password: 'correct' });
+    const result = await controller.loginWithGoogle({ idToken: 'google-id-token' });
 
     expect(result).toEqual(mockResult);
-    expect(authService.login).toHaveBeenCalledWith('correct');
+    expect(authService.loginWithGoogle).toHaveBeenCalledWith('google-id-token');
   });
 
-  it('propagates UnauthorizedException for wrong password', async () => {
-    (authService.login as jest.Mock).mockRejectedValue(new UnauthorizedException('Invalid password'));
+  it('propagates UnauthorizedException for invalid Google credentials', async () => {
+    (authService.loginWithGoogle as jest.Mock).mockRejectedValue(new UnauthorizedException('Invalid Google credentials'));
 
-    await expect(controller.login({ password: 'wrong' })).rejects.toThrow(UnauthorizedException);
+    await expect(controller.loginWithGoogle({ idToken: 'bad-token' })).rejects.toThrow(UnauthorizedException);
   });
 });

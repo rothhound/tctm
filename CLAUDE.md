@@ -127,7 +127,7 @@ Prompts live in `prompt_versions` table, not in code. Each has a `purpose` (extr
 ## Key Conventions
 
 - **Global prefix**: `/api` in `main.ts`. Controllers use relative paths: `@Controller('tasks')`.
-- **Auth**: `AuthGuard` global, `@Public()` decorator bypasses JWT for webhooks.
+- **Auth**: Google Sign-In only (single-tenant). Backend verifies Google ID tokens via `google-auth-library`, requires `email_verified=true` and a case-insensitive match against `ALLOWED_GOOGLE_EMAIL`, then issues a 24h JWT. `AuthGuard` is global; `@Public()` bypasses JWT for webhooks. Sliding refresh: `RefreshInterceptor` attaches `X-Refresh-Token` + `X-Refresh-Expires` headers when the access token is within 6h of expiry; the web client picks them up in its base query and updates `authSlice`.
 - **Webhook security**: Slack = HMAC, Gmail = Pub/Sub JWT, Notion = HMAC. Each verifies in controller.
 - **Static serving**: production NestJS serves `apps/web/dist` via `ServeStaticModule`. Dev: Vite :3000 proxies to :4000.
 - **Tests**: every module has `.spec.ts` (Jest) or `.test.tsx` (Vitest). Update all 3 suites on contract changes.
@@ -155,7 +155,10 @@ Defined in `apps/api/src/shared/queues.module.ts`:
 ## Environment Variables
 
 See `apps/api/.env.example` for full list. Critical ones:
-- `JWT_SECRET`, `AUTH_PASSWORD_HASH` — single-tenant auth
+- `JWT_SECRET` — signs the access token after Google verification
+- `GOOGLE_AUTH_CLIENT_ID` — Web-app OAuth client for Google Sign-In (separate from `GOOGLE_CLIENT_ID` used for Gmail/Drive scopes)
+- `ALLOWED_GOOGLE_EMAIL` — the single email permitted to sign in (case-insensitive)
+- `VITE_GOOGLE_AUTH_CLIENT_ID` (web) — same value as `GOOGLE_AUTH_CLIENT_ID`
 - `ANTHROPIC_API_KEY` — LLM calls
 - `DATABASE_URL` — Postgres connection
 - `REDIS_URL` (Heroku) or `REDIS_HOST`/`REDIS_PORT` (local) — BullMQ + cache
@@ -171,10 +174,11 @@ This system handles LP communications, board materials, active deal terms, and N
 - **`npm audit`** must be run after every dependency change. Fix everything — no exceptions.
 - **Webhook verification**: every inbound endpoint verifies signatures (Slack HMAC, Gmail JWT, Notion HMAC). Never accept unverified payloads.
 - **Secrets**: never in code or `.env` in production. Heroku config vars only. `.env` is dev-only and `.gitignore`d.
-- **Auth**: JWT tokens expire in 24h. `AUTH_PASSWORD_HASH` is bcrypt, never stored in plaintext.
+- **Auth**: Google Sign-In gated by `ALLOWED_GOOGLE_EMAIL`. ID tokens verified via `google-auth-library` with audience check. Issued JWT expires in 24h; sliding refresh issues a new token via `X-Refresh-Token` header when within 6h of expiry — no separate refresh-token storage, no revocation list.
 - **LLM data**: Anthropic API set to zero-retention. Audit log stores I/O snapshots locally for debugging but redact before sending to external observability.
 - **Network**: Heroku handles HTTPS termination. App trusts proxy headers (`trustProxy: true`).
 - **Dependencies**: keep up to date. Run `npm audit` regularly. If a transitive dep has a vulnerability that can't be fixed upstream, use `overrides` in `package.json`.
+- **Accepted residual risk** (4 moderate findings, all the same root cause): `drizzle-kit` (CLI used only locally for `db:generate`/`db:studio`/`db:migrate`) still pulls the unmaintained `@esbuild-kit/esm-loader`, which pins esbuild ≤0.24.2 (GHSA-67mh-4wv8-2f99 — esbuild's dev server allows arbitrary websites to read responses). npm overrides don't penetrate the nested `node_modules/@esbuild-kit/core-utils/node_modules/esbuild` install. Exploit requires visiting a malicious site while drizzle-kit is actively running its dev server — not the case during normal use. Not runtime, not production. Revisit when drizzle-kit drops `@esbuild-kit/esm-loader` upstream.
 
 ## Deployment (Heroku)
 
@@ -187,7 +191,8 @@ heroku addons:create heroku-redis:mini
 # Set config vars
 heroku config:set NODE_ENV=production
 heroku config:set JWT_SECRET=$(openssl rand -hex 32)
-heroku config:set AUTH_PASSWORD_HASH='$2a$10$...'
+heroku config:set GOOGLE_AUTH_CLIENT_ID='...apps.googleusercontent.com'
+heroku config:set ALLOWED_GOOGLE_EMAIL='partner@example.com'
 heroku config:set ANTHROPIC_API_KEY=sk-ant-...
 heroku config:set PARTNER_NAME="Your Name"
 heroku config:set PARTNER_ROLE="Your Role"

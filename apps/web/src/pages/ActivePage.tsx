@@ -1,14 +1,25 @@
 import { useState, useCallback, useRef } from 'react';
-import type { TaskDto } from '@tctm/shared';
+import type { TaskDto, TaskPriority } from '@tctm/shared';
 import { useUpdateTaskMutation, useCompleteTaskMutation } from '../store/api';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
-import { TaskRow } from '../components/ui/TaskRow';
+import { TaskCard } from '../components/ui/TaskCard';
 import { TaskPanel } from '../components/ui/TaskPanel';
 import { ViewToggle, useViewMode } from '../components/ui/ViewToggle';
 import { EmptyState } from '../components/ui/EmptyState';
 import { useAllTasks } from '../hooks/useAllTasks';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
+
+const PRIORITY_COLUMNS: { key: TaskPriority; label: string; dot: string }[] = [
+  { key: 'high', label: 'High', dot: '#E24B4A' },
+  { key: 'mid', label: 'Mid', dot: '#EF9F27' },
+  { key: 'low', label: 'Low', dot: '#97C459' },
+  { key: 'none', label: 'None', dot: '#d5d0c8' },
+];
+
+function sortByCreated(tasks: TaskDto[]): TaskDto[] {
+  return [...tasks].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
 
 function sortByPriority(tasks: TaskDto[]): TaskDto[] {
   const order: Record<string, number> = { high: 0, mid: 1, low: 2, none: 3 };
@@ -18,6 +29,16 @@ function sortByPriority(tasks: TaskDto[]): TaskDto[] {
     if (pa !== pb) return pa - pb;
     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
+}
+
+function groupByPriority(tasks: TaskDto[]): Record<TaskPriority, TaskDto[]> {
+  const groups: Record<TaskPriority, TaskDto[]> = { high: [], mid: [], low: [], none: [] };
+  for (const t of tasks) {
+    const key = (groups[t.priority as TaskPriority] ? t.priority : 'none') as TaskPriority;
+    groups[key].push(t);
+  }
+  for (const k of Object.keys(groups) as TaskPriority[]) groups[k] = sortByCreated(groups[k]);
+  return groups;
 }
 
 // ── Drop zone with drag-over highlight ────────────────────────
@@ -44,44 +65,55 @@ function DropZone({ onDrop, children, className }: { onDrop: (taskId: string) =>
   );
 }
 
-// ── Single kanban column ───────────────────────────────────────
-function KanbanColumn({ tasks, variant, onSelect, selectedTaskId, onDueDateChange, onCheckboxComplete, highlightedTaskId }: { tasks: TaskDto[]; variant: 'pending' | 'done'; onSelect: (t: TaskDto) => void; selectedTaskId?: string | null; onDueDateChange?: (taskId: string, dueAt: string | null) => void; onCheckboxComplete?: (taskId: string) => void; highlightedTaskId?: string | null }) {
-  const isPending = variant === 'pending';
+// ── Single priority column ────────────────────────────────────
+function PriorityColumn({ priority, label, dot, tasks, onSelect, selectedTaskId, onDueDateChange, onCheckboxComplete, onChangePriority }: {
+  priority: TaskPriority;
+  label: string;
+  dot: string;
+  tasks: TaskDto[];
+  onSelect: (t: TaskDto) => void;
+  selectedTaskId?: string | null;
+  onDueDateChange?: (taskId: string, dueAt: string | null) => void;
+  onCheckboxComplete?: (taskId: string) => void;
+  onChangePriority: (taskId: string, priority: TaskPriority) => void;
+}) {
   return (
-    <div className="overflow-y-auto flex-1 min-h-0 bg-[var(--color-surface-alt)] rounded-lg">
-      {tasks.length === 0 && (
-        <EmptyState message={isPending ? 'You\'re all caught up. No pending tasks.' : 'No completed tasks yet. They\'ll show up here.'} />
-      )}
-      <div className="space-y-1.5">
+    <DropZone onDrop={(taskId) => onChangePriority(taskId, priority)} className="flex flex-col min-w-[280px] md:min-w-0 snap-start min-h-0">
+      <div className="flex items-center gap-2 px-2 py-2 mb-2 shrink-0">
+        <span className="w-2 h-2 rounded-full" style={{ background: dot }} />
+        <h3 className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wider">{label}</h3>
+        <span className="text-[10px] text-[var(--color-text-muted)] bg-[var(--color-surface-alt)] px-1.5 py-0.5 rounded-full">{tasks.length}</span>
+      </div>
+      <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5 px-1">
+        {tasks.length === 0 && <p className="text-[11px] text-[var(--color-text-muted)] text-center py-8">Empty</p>}
         {tasks.map((t) => (
-          <TaskRow
-            key={t.id}
-            task={t}
-            showCheckbox={isPending}
-            isSelected={t.id === selectedTaskId}
-            onSelect={onSelect}
-            onDueDateChange={isPending ? onDueDateChange : undefined}
-            onComplete={isPending ? onCheckboxComplete : undefined}
-            highlighted={!isPending && t.id === highlightedTaskId}
-          />
+          <TaskCard key={t.id} task={t} flavor="active" isSelected={t.id === selectedTaskId} onSelect={onSelect} onDueDateChange={onDueDateChange} onComplete={onCheckboxComplete} />
         ))}
       </div>
-    </div>
+    </DropZone>
   );
 }
 
-// ── Mobile Kanban — one column at a time with arrow nav ────────
-function MobileKanbanView({ pending, done, onSelect, selectedTaskId, onDueDateChange, onCheckboxComplete, highlightedTaskId }: { pending: TaskDto[]; done: TaskDto[]; onSelect: (t: TaskDto) => void; selectedTaskId?: string | null; onDueDateChange?: (taskId: string, dueAt: string | null) => void; onCheckboxComplete?: (taskId: string) => void; highlightedTaskId?: string | null }) {
-  const [activeTab, setActiveTab] = useState<'pending' | 'done'>('pending');
+// ── Mobile Kanban — one priority column at a time with arrow nav ────
+function MobileKanbanView({ groups, onSelect, selectedTaskId, onDueDateChange, onCheckboxComplete, onChangePriority }: {
+  groups: Record<TaskPriority, TaskDto[]>;
+  onSelect: (t: TaskDto) => void;
+  selectedTaskId?: string | null;
+  onDueDateChange?: (taskId: string, dueAt: string | null) => void;
+  onCheckboxComplete?: (taskId: string) => void;
+  onChangePriority: (taskId: string, priority: TaskPriority) => void;
+}) {
+  const [activeIdx, setActiveIdx] = useState(0);
+  const active = PRIORITY_COLUMNS[activeIdx];
 
   return (
     <div className="flex flex-col flex-1 min-h-0 px-3 md:px-0">
       {/* Tab header — centered with arrows */}
       <div className="flex items-center justify-center gap-4 py-0 md:py-3 shrink-0">
         <button
-          onClick={() => setActiveTab('pending')}
+          onClick={() => setActiveIdx((i) => Math.max(0, i - 1))}
           className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors ${
-            activeTab === 'done' ? 'text-[var(--color-text-muted)] hover:bg-[var(--color-surface-alt)]' : 'invisible'
+            activeIdx > 0 ? 'text-[var(--color-text-muted)] hover:bg-[var(--color-surface-alt)]' : 'invisible'
           }`}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -90,16 +122,16 @@ function MobileKanbanView({ pending, done, onSelect, selectedTaskId, onDueDateCh
         </button>
 
         <div className="flex items-center gap-2">
-          <span className={`w-2 h-2 rounded-full ${activeTab === 'pending' ? 'bg-[var(--color-primary)]' : 'bg-[var(--color-success)]'}`} />
+          <span className="w-2 h-2 rounded-full" style={{ background: active.dot }} />
           <span className="text-sm font-medium text-[var(--color-text)]">
-            {activeTab === 'pending' ? `Pending (${pending.length})` : `Done (${done.length})`}
+            {active.label} ({groups[active.key].length})
           </span>
         </div>
 
         <button
-          onClick={() => setActiveTab('done')}
+          onClick={() => setActiveIdx((i) => Math.min(PRIORITY_COLUMNS.length - 1, i + 1))}
           className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors ${
-            activeTab === 'pending' ? 'text-[var(--color-text-muted)] hover:bg-[var(--color-surface-alt)]' : 'invisible'
+            activeIdx < PRIORITY_COLUMNS.length - 1 ? 'text-[var(--color-text-muted)] hover:bg-[var(--color-surface-alt)]' : 'invisible'
           }`}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -108,32 +140,42 @@ function MobileKanbanView({ pending, done, onSelect, selectedTaskId, onDueDateCh
         </button>
       </div>
 
-      {/* Both columns rendered, only active one visible — preserves scroll state */}
-      <div className={`flex-1 min-h-0 flex flex-col ${activeTab === 'pending' ? '' : 'hidden'}`}>
-        <KanbanColumn tasks={pending} variant="pending" onSelect={onSelect} selectedTaskId={selectedTaskId} onDueDateChange={onDueDateChange} onCheckboxComplete={onCheckboxComplete} />
-      </div>
-      <div className={`flex-1 min-h-0 flex flex-col ${activeTab === 'done' ? '' : 'hidden'}`}>
-        <KanbanColumn tasks={done} variant="done" onSelect={onSelect} selectedTaskId={selectedTaskId} highlightedTaskId={highlightedTaskId} />
-      </div>
+      {/* All columns rendered, only active one visible — preserves scroll state */}
+      {PRIORITY_COLUMNS.map((col, idx) => (
+        <div key={col.key} className={`flex-1 min-h-0 flex flex-col ${idx === activeIdx ? '' : 'hidden'}`}>
+          <div className="overflow-y-auto flex-1 min-h-0 bg-[var(--color-surface-alt)] rounded-lg">
+            {groups[col.key].length === 0 && <EmptyState message={`No ${col.label.toLowerCase()}-priority tasks.`} />}
+            <div className="space-y-1.5">
+              {groups[col.key].map((t) => (
+                <TaskCard
+                  key={t.id}
+                  task={t}
+                  flavor="active"
+                  isSelected={t.id === selectedTaskId}
+                  onSelect={onSelect}
+                  onDueDateChange={onDueDateChange}
+                  onComplete={onCheckboxComplete}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
 
-// ── Desktop List — both sections in one scroll ─────────────────
-function DesktopListView({ pending, done, hasMore, isLoadingMore, onLoadMore, onSelect, selectedTaskId, onDueDateChange, onComplete, onCheckboxComplete, highlightedTaskId }: {
+// ── Desktop List — flat sorted-by-priority list ───────────────
+function DesktopListView({ pending, hasMore, isLoadingMore, onLoadMore, onSelect, selectedTaskId, onDueDateChange, onCheckboxComplete }: {
   pending: TaskDto[];
-  done: TaskDto[];
   hasMore: boolean;
   isLoadingMore: boolean;
   onLoadMore: () => void;
   onSelect: (t: TaskDto) => void;
   selectedTaskId: string | null;
   onDueDateChange?: (taskId: string, dueAt: string | null) => void;
-  onComplete: (taskId: string) => void;
   onCheckboxComplete: (taskId: string) => void;
-  highlightedTaskId: string | null;
 }) {
-  const [showDone, setShowDone] = useState(false);
   const scrollRef = useInfiniteScroll(onLoadMore, hasMore, isLoadingMore);
 
   return (
@@ -146,7 +188,7 @@ function DesktopListView({ pending, done, hasMore, isLoadingMore, onLoadMore, on
             </span>
           </div>
           <div className="space-y-1.5">
-            {pending.map((t) => <TaskRow key={t.id} task={t} isSelected={t.id === selectedTaskId} onSelect={onSelect} onDueDateChange={onDueDateChange} onComplete={onCheckboxComplete} />)}
+            {pending.map((t) => <TaskCard key={t.id} task={t} flavor="active" isSelected={t.id === selectedTaskId} onSelect={onSelect} onDueDateChange={onDueDateChange} onComplete={onCheckboxComplete} />)}
           </div>
         </div>
       )}
@@ -157,66 +199,38 @@ function DesktopListView({ pending, done, hasMore, isLoadingMore, onLoadMore, on
         </div>
       )}
 
-      {(pending.length > 0 || done.length > 0) && (
-        <DropZone onDrop={onComplete}>
-          <button
-            onClick={() => setShowDone(!showDone)}
-            className="px-1 py-1.5 flex items-center gap-1.5 text-[11px] font-medium text-[var(--color-text-muted)] uppercase tracking-wider hover:text-[var(--color-text)] transition-colors"
-          >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5"
-              className={`transition-transform ${showDone ? 'rotate-90' : ''}`}>
-              <path d="M3 1L7 5L3 9" />
-            </svg>
-            Done ({done.length})
-          </button>
-          {showDone && done.length > 0 && (
-            <div className="space-y-1.5">
-              {done.map((t) => <TaskRow key={t.id} task={t} showCheckbox={false} isSelected={t.id === selectedTaskId} onSelect={onSelect} highlighted={t.id === highlightedTaskId} />)}
-            </div>
-          )}
-        </DropZone>
-      )}
-
-      {pending.length === 0 && done.length === 0 && (
+      {pending.length === 0 && (
         <EmptyState message="You're all caught up. New tasks will appear as they're captured." />
       )}
     </div>
   );
 }
 
-// ── Kanban View (2 columns: Pending / Done) ────────────────────
-function KanbanView({ pending, done, onSelect, selectedTaskId, onDueDateChange, onComplete, onCheckboxComplete, highlightedTaskId }: { pending: TaskDto[]; done: TaskDto[]; onSelect: (t: TaskDto) => void; selectedTaskId?: string | null; onDueDateChange?: (taskId: string, dueAt: string | null) => void; onComplete: (taskId: string) => void; onCheckboxComplete: (taskId: string) => void; highlightedTaskId: string | null }) {
+// ── Kanban View (4 priority columns) ───────────────────────────
+function KanbanView({ groups, onSelect, selectedTaskId, onDueDateChange, onCheckboxComplete, onChangePriority }: {
+  groups: Record<TaskPriority, TaskDto[]>;
+  onSelect: (t: TaskDto) => void;
+  selectedTaskId?: string | null;
+  onDueDateChange?: (taskId: string, dueAt: string | null) => void;
+  onCheckboxComplete: (taskId: string) => void;
+  onChangePriority: (taskId: string, priority: TaskPriority) => void;
+}) {
   return (
-    <div className="flex gap-4 overflow-x-auto snap-x snap-mandatory pb-4 md:grid md:grid-cols-2 md:overflow-visible md:snap-none flex-1 min-h-0">
-      {/* Pending column */}
-      <div className="flex flex-col min-w-[280px] md:min-w-0 snap-start min-h-0">
-        <div className="flex items-center gap-2 px-2 py-2 mb-2 shrink-0">
-          <span className="w-2 h-2 rounded-full bg-[var(--color-primary)]" />
-          <h3 className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wider">Pending</h3>
-          <span className="text-[10px] text-[var(--color-text-muted)] bg-[var(--color-surface-alt)] px-1.5 py-0.5 rounded-full">{pending.length}</span>
-        </div>
-        <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5 px-1">
-          {pending.length === 0 && <p className="text-[11px] text-[var(--color-text-muted)] text-center py-8">All clear</p>}
-          {pending.map((t) => (
-            <TaskRow key={t.id} task={t} isSelected={t.id === selectedTaskId} onSelect={onSelect} onDueDateChange={onDueDateChange} onComplete={onCheckboxComplete} />
-          ))}
-        </div>
-      </div>
-
-      {/* Done column */}
-      <DropZone onDrop={onComplete} className="flex flex-col min-w-[280px] md:min-w-0 snap-start min-h-0">
-        <div className="flex items-center gap-2 px-2 py-2 mb-2 shrink-0">
-          <span className="w-2 h-2 rounded-full bg-[var(--color-success)]" />
-          <h3 className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wider">Done</h3>
-          <span className="text-[10px] text-[var(--color-text-muted)] bg-[var(--color-surface-alt)] px-1.5 py-0.5 rounded-full">{done.length}</span>
-        </div>
-        <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5 px-1">
-          {done.length === 0 && <p className="text-[11px] text-[var(--color-text-muted)] text-center py-8">Nothing done yet</p>}
-          {done.map((t) => (
-            <TaskRow key={t.id} task={t} showCheckbox={false} isSelected={t.id === selectedTaskId} onSelect={onSelect} highlighted={t.id === highlightedTaskId} />
-          ))}
-        </div>
-      </DropZone>
+    <div className="flex gap-4 overflow-x-auto snap-x snap-mandatory pb-4 md:grid md:grid-cols-4 md:overflow-visible md:snap-none flex-1 min-h-0">
+      {PRIORITY_COLUMNS.map((col) => (
+        <PriorityColumn
+          key={col.key}
+          priority={col.key}
+          label={col.label}
+          dot={col.dot}
+          tasks={groups[col.key]}
+          onSelect={onSelect}
+          selectedTaskId={selectedTaskId}
+          onDueDateChange={onDueDateChange}
+          onCheckboxComplete={onCheckboxComplete}
+          onChangePriority={onChangePriority}
+        />
+      ))}
     </div>
   );
 }
@@ -229,12 +243,11 @@ export function ActivePage() {
   const [updateTask] = useUpdateTaskMutation();
   const [completeTask] = useCompleteTaskMutation();
 
-  const { tasks: allTasks, isLoading, hasMore, loadMore, updateTaskLocally } = useAllTasks();
+  const { tasks: allTasks, isLoading, hasMore, loadMore, updateTaskLocally, removeTaskLocally } = useAllTasks();
 
-  const pending = sortByPriority(allTasks.filter((t) => t.status === 'pending'));
-  const done = allTasks
-    .filter((t) => t.status === 'done')
-    .sort((a, b) => new Date(b.completedAt ?? b.updatedAt).getTime() - new Date(a.completedAt ?? a.updatedAt).getTime());
+  const pendingTasks = allTasks.filter((t) => t.status === 'pending');
+  const pendingSorted = sortByPriority(pendingTasks);
+  const grouped = groupByPriority(pendingTasks);
 
   const handleSelect = (task: TaskDto) => setSelectedTaskId(task.id);
 
@@ -243,18 +256,15 @@ export function ActivePage() {
     updateTaskLocally(taskId, { dueAt });
   }, [updateTask, updateTaskLocally]);
 
-  const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null);
-
-  const handleComplete = useCallback((taskId: string) => {
-    updateTaskLocally(taskId, { status: 'done' as const, completedAt: new Date().toISOString() });
-    completeTask(taskId);
-  }, [updateTaskLocally, completeTask]);
-
   const handleCheckboxComplete = useCallback((taskId: string) => {
-    handleComplete(taskId);
-    setHighlightedTaskId(taskId);
-    setTimeout(() => setHighlightedTaskId(null), 1500);
-  }, [handleComplete]);
+    removeTaskLocally(taskId);
+    completeTask(taskId);
+  }, [removeTaskLocally, completeTask]);
+
+  const handleChangePriority = useCallback((taskId: string, priority: TaskPriority) => {
+    updateTaskLocally(taskId, { priority });
+    updateTask({ id: taskId, priority });
+  }, [updateTask, updateTaskLocally]);
 
   return (
     <>
@@ -268,17 +278,14 @@ export function ActivePage() {
 
         {!(isLoading && allTasks.length === 0) && viewMode === 'list' && (
           <DesktopListView
-            pending={pending}
-            done={done}
+            pending={pendingSorted}
             hasMore={hasMore}
             isLoadingMore={isLoading}
             onLoadMore={loadMore}
             onSelect={handleSelect}
             selectedTaskId={selectedTaskId}
             onDueDateChange={handleDueDateChange}
-            onComplete={handleComplete}
             onCheckboxComplete={handleCheckboxComplete}
-            highlightedTaskId={highlightedTaskId}
           />
         )}
 
@@ -286,10 +293,10 @@ export function ActivePage() {
         {!(isLoading && allTasks.length === 0) && viewMode === 'kanban' && (
           <>
             <div className="md:hidden flex-1 min-h-0 flex flex-col">
-              <MobileKanbanView pending={pending} done={done} onSelect={handleSelect} selectedTaskId={selectedTaskId} onDueDateChange={handleDueDateChange} onCheckboxComplete={handleCheckboxComplete} highlightedTaskId={highlightedTaskId} />
+              <MobileKanbanView groups={grouped} onSelect={handleSelect} selectedTaskId={selectedTaskId} onDueDateChange={handleDueDateChange} onCheckboxComplete={handleCheckboxComplete} onChangePriority={handleChangePriority} />
             </div>
             <div className="hidden md:flex flex-1 min-h-0">
-              <KanbanView pending={pending} done={done} onSelect={handleSelect} selectedTaskId={selectedTaskId} onDueDateChange={handleDueDateChange} onComplete={handleComplete} onCheckboxComplete={handleCheckboxComplete} highlightedTaskId={highlightedTaskId} />
+              <KanbanView groups={grouped} onSelect={handleSelect} selectedTaskId={selectedTaskId} onDueDateChange={handleDueDateChange} onCheckboxComplete={handleCheckboxComplete} onChangePriority={handleChangePriority} />
             </div>
           </>
         )}

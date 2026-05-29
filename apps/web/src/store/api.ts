@@ -1,7 +1,7 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import type { BaseQueryFn, FetchArgs, FetchBaseQueryError } from '@reduxjs/toolkit/query';
 import type { RootState } from './store';
-import { logout } from './authSlice';
+import { logout, setCredentials } from './authSlice';
 import type { TaskDto, TaskNoteDto, TaskCounts, LoginResponse, PaginatedResponse } from '@tctm/shared';
 
 const rawBaseQuery = fetchBaseQuery({
@@ -13,15 +13,60 @@ const rawBaseQuery = fetchBaseQuery({
   },
 });
 
+/**
+ * Reads sliding-refresh headers from a Response. Returns new credentials when
+ * the backend issued a refreshed token, or null otherwise. Exported for tests.
+ */
+export function extractRefreshedCredentials(
+  headers: Headers | undefined,
+): { token: string; expiresAt: string } | null {
+  if (!headers) return null;
+  const token = headers.get('x-refresh-token');
+  const expiresAt = headers.get('x-refresh-expires');
+  if (!token || !expiresAt) return null;
+  return { token, expiresAt };
+}
+
+/**
+ * Endpoints whose 401 means "this login attempt failed" rather than "your
+ * session expired". For these, we let the error bubble back to the caller and
+ * do NOT dispatch logout or redirect.
+ */
+const LOGIN_ENDPOINTS = new Set(['loginWithGoogle']);
+
+/**
+ * True when a baseQuery result represents a session-expired condition that
+ * should clear credentials and force a re-login. Exported for tests.
+ */
+export function shouldClearSession(
+  status: number | string | undefined,
+  endpoint: string,
+): boolean {
+  if (status !== 401) return false;
+  if (LOGIN_ENDPOINTS.has(endpoint)) return false;
+  return true;
+}
+
 const baseQueryWithReauth: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQueryError> = async (
   args,
   api,
   extraOptions,
 ) => {
   const result = await rawBaseQuery(args, api, extraOptions);
-  if (result.error && result.error.status === 401) {
+
+  // Sliding refresh: backend sets these headers when the token is approaching expiry.
+  const refreshed = extractRefreshedCredentials(result.meta?.response?.headers);
+  if (refreshed) {
+    api.dispatch(setCredentials(refreshed));
+  }
+
+  // Session-expired handling: dispatch logout so RequireAuth (router-level)
+  // redirects to /login with from= preserved. Skip the login endpoints — their
+  // 401 is the expected "wrong email" outcome of trying to log in. No
+  // window.location.replace: full reload would lose SPA state and the deep-link
+  // capture in RequireAuth.
+  if (shouldClearSession(result.error?.status, api.endpoint)) {
     api.dispatch(logout());
-    window.location.replace('/login');
   }
   return result;
 };
@@ -30,9 +75,9 @@ export const api = createApi({
   baseQuery: baseQueryWithReauth,
   tagTypes: ['Tasks', 'TaskCounts', 'TaskNotes', 'AuditLog', 'SourceConfig', 'Entities', 'Metrics', 'Prompts'],
   endpoints: (builder) => ({
-    // Auth
-    login: builder.mutation<LoginResponse, { password: string }>({
-      query: (body) => ({ url: 'auth/login', method: 'POST', body }),
+    // Auth — Google ID token exchange
+    loginWithGoogle: builder.mutation<LoginResponse, { idToken: string }>({
+      query: (body) => ({ url: 'auth/google', method: 'POST', body }),
     }),
 
     // Tasks — paginated by bucket
@@ -72,6 +117,16 @@ export const api = createApi({
     completeTask: builder.mutation<void, string>({
       query: (id) => ({ url: `tasks/${id}/complete`, method: 'POST' }),
       invalidatesTags: ['Tasks', 'TaskCounts'],
+    }),
+
+    uncompleteTask: builder.mutation<void, string>({
+      query: (id) => ({ url: `tasks/${id}/uncomplete`, method: 'POST' }),
+      invalidatesTags: ['Tasks', 'TaskCounts'],
+    }),
+
+    getDoneTasks: builder.query<TaskDto[], void>({
+      query: () => 'tasks/done',
+      providesTags: ['Tasks'],
     }),
 
     snoozeTask: builder.mutation<void, { id: string; until: string }>({
@@ -221,11 +276,13 @@ export const api = createApi({
 });
 
 export const {
-  useLoginMutation,
+  useLoginWithGoogleMutation,
   useGetTasksQuery,
   useGetTaskQuery,
   useUpdateTaskMutation,
   useCompleteTaskMutation,
+  useUncompleteTaskMutation,
+  useGetDoneTasksQuery,
   useSetReminderMutation,
   useClearReminderMutation,
   useGetSubtasksQuery,
