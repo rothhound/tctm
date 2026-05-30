@@ -3,7 +3,7 @@ import type { TaskDto } from '@tctm/shared';
 import { api } from '../store/api';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 
-const BUCKETS = ['inbox', 'review', 'today', 'this_week', 'waiting_on'] as const;
+const BUCKETS = ['inbox', 'review'] as const;
 const PAGE_SIZE = 25;
 
 /**

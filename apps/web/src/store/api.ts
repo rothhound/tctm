@@ -99,16 +99,6 @@ export const api = createApi({
       providesTags: ['Tasks'],
     }),
 
-    acceptTask: builder.mutation<void, { id: string; bucket: string }>({
-      query: ({ id, ...body }) => ({ url: `tasks/${id}/accept`, method: 'POST', body }),
-      invalidatesTags: ['Tasks', 'TaskCounts'],
-    }),
-
-    dismissTask: builder.mutation<void, { id: string; reason?: string }>({
-      query: ({ id, ...body }) => ({ url: `tasks/${id}/dismiss`, method: 'POST', body }),
-      invalidatesTags: ['Tasks', 'TaskCounts'],
-    }),
-
     updateTask: builder.mutation<void, { id: string; [key: string]: any }>({
       query: ({ id, ...body }) => ({ url: `tasks/${id}`, method: 'PATCH', body }),
       invalidatesTags: ['Tasks', 'TaskCounts'],
@@ -127,11 +117,6 @@ export const api = createApi({
     getDoneTasks: builder.query<TaskDto[], void>({
       query: () => 'tasks/done',
       providesTags: ['Tasks'],
-    }),
-
-    snoozeTask: builder.mutation<void, { id: string; until: string }>({
-      query: ({ id, ...body }) => ({ url: `tasks/${id}/snooze`, method: 'POST', body }),
-      invalidatesTags: ['Tasks', 'TaskCounts'],
     }),
 
     // Remind me

@@ -12,7 +12,6 @@ interface CreateFromExtractionInput {
   judgeVerdict: JudgeVerdict;
   finalBucket: 'inbox' | 'review';
   dismissed: boolean;
-  reviewRequired: boolean;
   autoCreated: boolean;
   dedupHash: string;
 }
@@ -50,7 +49,6 @@ export class TasksService {
       .values({
         title: input.task.title,
         description: input.task.description,
-        type: input.task.type,
         source: parentSource,
         status: 'pending',
         bucket: input.finalBucket,
@@ -60,7 +58,6 @@ export class TasksService {
         sourceSignalIds: [input.signalId],
         dueAt: input.task.dueAtIso ? new Date(input.task.dueAtIso) : null,
         dedupHash: input.dedupHash,
-        reviewRequired: input.reviewRequired,
         autoCreated: input.autoCreated,
         archived: input.dismissed,
         archivedAt: input.dismissed ? new Date() : null,
@@ -267,31 +264,13 @@ export class TasksService {
   // User actions
   // ============================================================================
 
-  async accept(taskId: string, newBucket: 'today' | 'this_week' | 'waiting_on' | 'snoozed') {
-    const [task] = await this.db.select().from(tasks).where(eq(tasks.id, taskId));
-    if (!task) throw new NotFoundException('Task not found');
-
-    await this.db
-      .update(tasks)
-      .set({ bucket: newBucket, reviewRequired: false, updatedAt: new Date() })
-      .where(eq(tasks.id, taskId));
-
-    await this.db.insert(extractionFeedback).values({
-      taskId,
-      signalId: task.sourceSignalIds[0] ?? null,
-      action: 'accepted',
-      extractionSnapshot: task.extraction ?? {},
-      wasAutoCreated: task.autoCreated,
-    });
-  }
-
   async edit(taskId: string, updates: Record<string, any>, reason?: string) {
     const [task] = await this.db.select().from(tasks).where(eq(tasks.id, taskId));
     if (!task) throw new NotFoundException('Task not found');
 
     // Convert date strings to Date objects for timestamp columns
     const cleaned: Record<string, any> = { ...updates, updatedAt: new Date() };
-    for (const key of ['dueAt', 'reminderAt', 'snoozeUntil'] as const) {
+    for (const key of ['dueAt', 'reminderAt'] as const) {
       if (key in cleaned) {
         cleaned[key] = cleaned[key] ? new Date(cleaned[key]) : null;
       }
@@ -308,25 +287,6 @@ export class TasksService {
       action: 'edited',
       reason,
       extractionSnapshot: { before: task, updates },
-      wasAutoCreated: task.autoCreated,
-    });
-  }
-
-  async dismiss(taskId: string, reason?: string) {
-    const [task] = await this.db.select().from(tasks).where(eq(tasks.id, taskId));
-    if (!task) throw new NotFoundException('Task not found');
-
-    await this.db
-      .update(tasks)
-      .set({ archived: true, archivedAt: new Date(), updatedAt: new Date() })
-      .where(eq(tasks.id, taskId));
-
-    await this.db.insert(extractionFeedback).values({
-      taskId,
-      signalId: task.sourceSignalIds[0] ?? null,
-      action: 'dismissed',
-      reason,
-      extractionSnapshot: task.extraction ?? {},
       wasAutoCreated: task.autoCreated,
     });
   }
@@ -361,25 +321,6 @@ export class TasksService {
       .where(eq(tasks.id, taskId));
   }
 
-  async snooze(taskId: string, until: string) {
-    const [task] = await this.db.select().from(tasks).where(eq(tasks.id, taskId));
-    if (!task) throw new NotFoundException('Task not found');
-
-    await this.db
-      .update(tasks)
-      .set({ bucket: 'snoozed', snoozeUntil: new Date(until), updatedAt: new Date() })
-      .where(eq(tasks.id, taskId));
-
-    await this.db.insert(extractionFeedback).values({
-      taskId,
-      signalId: task.sourceSignalIds[0] ?? null,
-      action: 'snoozed_indefinitely',
-      reason: `Snoozed until ${until}`,
-      extractionSnapshot: task.extraction ?? {},
-      wasAutoCreated: task.autoCreated,
-    });
-  }
-
   async archive(taskId: string) {
     await this.db
       .update(tasks)
@@ -406,7 +347,6 @@ export class TasksService {
       .values({
         title: data.title,
         description: data.description,
-        type: parent.type,
         status: 'pending',
         bucket: parent.bucket,
         priority: data.priority ?? 'mid',
@@ -493,7 +433,6 @@ export class TasksService {
       .values({
         title: task.title,
         description: task.description,
-        type: task.type,
         status: 'pending',
         bucket: task.bucket,
         priority: task.priority,
@@ -513,7 +452,6 @@ export class TasksService {
       await this.db.insert(tasks).values({
         title: sub.title,
         description: sub.description,
-        type: sub.type,
         status: 'pending',
         bucket: sub.bucket,
         priority: sub.priority,

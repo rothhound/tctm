@@ -1,24 +1,12 @@
 // Task statuses — only two states
 export type TaskStatus = 'pending' | 'done';
 
-// Organizational buckets — where a pending task lives in the UI
-export type TaskBucket = 'inbox' | 'review' | 'today' | 'this_week' | 'waiting_on' | 'snoozed';
+// Organizational buckets — where an auto-created pending task lands before triage
+export type TaskBucket = 'inbox' | 'review';
 
 export type TaskPriority = 'high' | 'mid' | 'low' | 'none';
 
-export type TaskType = 'do' | 'reply' | 'review' | 'decide' | 'intro' | 'waiting_on';
-
 export type SignalSource = 'gmail' | 'slack' | 'notion' | 'granola';
-
-export type SubSource =
-  | 'slack_dm'
-  | 'slack_channel'
-  | 'slack_reaction'
-  | 'gmail_vip'
-  | 'gmail_cold'
-  | 'notion_mention'
-  | 'notion_assigned'
-  | 'granola';
 
 export type EntityType = 'person' | 'company' | 'fund' | 'deal';
 
@@ -69,14 +57,11 @@ export interface TaskDto {
   id: string;
   title: string;
   description: string | null;
-  notes: string | null;
-  type: TaskType;
   status: TaskStatus;
   bucket: TaskBucket;
   priority: TaskPriority;
   source: string | null;
   dueAt: string | null;
-  snoozeUntil: string | null;
   reminderAt: string | null;
   parentTaskId: string | null;
   recurrence: RecurrencePattern | null;
@@ -84,7 +69,6 @@ export interface TaskDto {
   sourceSignalIds: string[];
   waitingOnEntityIds: string[];
   extraction: TaskExtraction | null;
-  reviewRequired: boolean;
   autoCreated: boolean;
   dedupHash: string | null;
   archived: boolean;
@@ -134,18 +118,6 @@ export interface PaginatedResponse<T> {
   page: number;
   limit: number;
   hasMore: boolean;
-}
-
-// Entity DTO
-export interface EntityDto {
-  id: string;
-  type: EntityType;
-  canonicalName: string;
-  aliases: string[];
-  context: string | null;
-  emails: string[];
-  slackIds: string[];
-  notionId: string | null;
 }
 
 // Auth

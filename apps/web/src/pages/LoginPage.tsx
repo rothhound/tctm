@@ -5,6 +5,7 @@ import { useLoginWithGoogleMutation } from '../store/api';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { setCredentials, selectIsAuthenticated } from '../store/authSlice';
 import { safeRedirectOr } from '../utils/safeRedirect';
+import { TctmLogo } from '../components/ui/TctmLogo';
 
 export function LoginPage() {
   const [error, setError] = useState('');
@@ -43,7 +44,9 @@ export function LoginPage() {
   return (
     <div className="h-full flex items-center justify-center bg-[var(--color-bg)] px-4">
       <div className="w-full max-w-sm space-y-6 text-center">
-        <h1 className="text-xl font-semibold">Assistant</h1>
+        <div className="flex justify-center">
+          <TctmLogo size={48} />
+        </div>
         <p className="text-sm text-[var(--color-text-muted)]">
           Sign in with your authorized Google account to continue.
         </p>

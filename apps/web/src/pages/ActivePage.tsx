@@ -9,6 +9,7 @@ import { ViewToggle, useViewMode } from '../components/ui/ViewToggle';
 import { EmptyState } from '../components/ui/EmptyState';
 import { useAllTasks } from '../hooks/useAllTasks';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
+import { useTaskRoute } from '../hooks/useTaskRoute';
 
 const PRIORITY_COLUMNS: { key: TaskPriority; label: string; dot: string }[] = [
   { key: 'high', label: 'High', dot: '#E24B4A' },
@@ -238,7 +239,7 @@ function KanbanView({ groups, onSelect, selectedTaskId, onDueDateChange, onCheck
 // ── Active Page ────────────────────────────────────────────────
 export function ActivePage() {
   usePageTitle('Active');
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const { selectedTaskId, openTask, closeTask } = useTaskRoute('/active');
   const [viewMode, setViewMode] = useViewMode();
   const [updateTask] = useUpdateTaskMutation();
   const [completeTask] = useCompleteTaskMutation();
@@ -249,7 +250,7 @@ export function ActivePage() {
   const pendingSorted = sortByPriority(pendingTasks);
   const grouped = groupByPriority(pendingTasks);
 
-  const handleSelect = (task: TaskDto) => setSelectedTaskId(task.id);
+  const handleSelect = (task: TaskDto) => openTask(task.id);
 
   const handleDueDateChange = useCallback((taskId: string, dueAt: string | null) => {
     updateTask({ id: taskId, dueAt });
@@ -305,7 +306,7 @@ export function ActivePage() {
       {selectedTaskId && (
         <TaskPanel
           taskId={selectedTaskId}
-          onClose={() => setSelectedTaskId(null)}
+          onClose={closeTask}
           onTaskUpdated={(id, updates) => updateTaskLocally(id, updates as any)}
         />
       )}

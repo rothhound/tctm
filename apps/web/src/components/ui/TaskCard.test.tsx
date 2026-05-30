@@ -21,8 +21,6 @@ function mockTask(overrides: Partial<TaskDto> = {}): TaskDto {
     id: 'task-1',
     title: 'Review pitch deck',
     description: 'From Acme Corp',
-    notes: null,
-    type: 'review',
     status: 'pending',
     bucket: 'inbox',
     priority: 'high',
@@ -34,7 +32,6 @@ function mockTask(overrides: Partial<TaskDto> = {}): TaskDto {
     sourceSignalIds: [],
     waitingOnEntityIds: [],
     extraction: null,
-    reviewRequired: false,
     autoCreated: true,
     dedupHash: null,
     archived: false,
@@ -46,7 +43,6 @@ function mockTask(overrides: Partial<TaskDto> = {}): TaskDto {
     createdAt: '2026-05-28T00:00:00Z',
     updatedAt: '2026-05-28T00:00:00Z',
     reminderAt: null,
-    snoozeUntil: null,
     ...overrides,
   };
 }

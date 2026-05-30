@@ -1,5 +1,5 @@
 {
-  "id": "f97701e0-f19e-44ec-88ab-6610c5b035d3",
+  "id": "bc89b0f2-a5df-4a0f-ac77-7da638e877c2",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -10,10 +10,9 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "varchar(8)",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "type": {
           "name": "type",
@@ -60,20 +59,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
-        },
-        "related_entity_ids": {
-          "name": "related_entity_ids",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "metadata": {
-          "name": "metadata",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
         },
         "last_interaction_at": {
           "name": "last_interaction_at",
@@ -141,20 +126,19 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "varchar(8)",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "task_id": {
           "name": "task_id",
-          "type": "uuid",
+          "type": "varchar(8)",
           "primaryKey": false,
           "notNull": true
         },
         "signal_id": {
           "name": "signal_id",
-          "type": "uuid",
+          "type": "varchar(8)",
           "primaryKey": false,
           "notNull": false
         },
@@ -341,20 +325,19 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "varchar(8)",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "signal_id": {
           "name": "signal_id",
-          "type": "uuid",
+          "type": "varchar(8)",
           "primaryKey": false,
           "notNull": false
         },
         "task_id": {
           "name": "task_id",
-          "type": "uuid",
+          "type": "varchar(8)",
           "primaryKey": false,
           "notNull": false
         },
@@ -366,7 +349,7 @@
         },
         "prompt_version_id": {
           "name": "prompt_version_id",
-          "type": "uuid",
+          "type": "varchar(8)",
           "primaryKey": false,
           "notNull": false
         },
@@ -586,10 +569,9 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "varchar(8)",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "purpose": {
           "name": "purpose",
@@ -695,10 +677,9 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "varchar(8)",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "endpoint": {
           "name": "endpoint",
@@ -756,10 +737,9 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "varchar(8)",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "source": {
           "name": "source",
@@ -799,13 +779,6 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true
-        },
-        "resolved_entity_ids": {
-          "name": "resolved_entity_ids",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
         },
         "extraction_attempts": {
           "name": "extraction_attempts",
@@ -940,16 +913,98 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.task_notes": {
+      "name": "task_notes",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(8)",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "task_id": {
+          "name": "task_id",
+          "type": "varchar(8)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content": {
+          "name": "content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "task_notes_task_id_idx": {
+          "name": "task_notes_task_id_idx",
+          "columns": [
+            {
+              "expression": "task_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "task_notes_created_at_idx": {
+          "name": "task_notes_created_at_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "task_notes_task_id_tasks_id_fk": {
+          "name": "task_notes_task_id_tasks_id_fk",
+          "tableFrom": "task_notes",
+          "tableTo": "tasks",
+          "columnsFrom": [
+            "task_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.tasks": {
       "name": "tasks",
       "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "varchar(8)",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "title": {
           "name": "title",
@@ -962,14 +1017,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
-        },
-        "type": {
-          "name": "type",
-          "type": "task_type",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'do'"
         },
         "status": {
           "name": "status",
@@ -993,16 +1040,16 @@
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": true,
-          "default": "'mid'"
+          "default": "'none'"
         },
-        "due_at": {
-          "name": "due_at",
-          "type": "timestamp with time zone",
+        "source": {
+          "name": "source",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
-        "snooze_until": {
-          "name": "snooze_until",
+        "due_at": {
+          "name": "due_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
@@ -1015,7 +1062,7 @@
         },
         "parent_task_id": {
           "name": "parent_task_id",
-          "type": "uuid",
+          "type": "varchar(8)",
           "primaryKey": false,
           "notNull": false
         },
@@ -1052,13 +1099,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "review_required": {
-          "name": "review_required",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
         "auto_created": {
           "name": "auto_created",
           "type": "boolean",
@@ -1082,6 +1122,25 @@
         "archived_at": {
           "name": "archived_at",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reported": {
+          "name": "reported",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "reported_at": {
+          "name": "reported_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "report_reason": {
+          "name": "report_reason",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -1211,6 +1270,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "tasks_reported_idx": {
+          "name": "tasks_reported_idx",
+          "columns": [
+            {
+              "expression": "reported",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -1293,11 +1367,7 @@
       "schema": "public",
       "values": [
         "inbox",
-        "review",
-        "today",
-        "this_week",
-        "waiting_on",
-        "snoozed"
+        "review"
       ]
     },
     "public.task_priority": {
@@ -1306,7 +1376,8 @@
       "values": [
         "high",
         "mid",
-        "low"
+        "low",
+        "none"
       ]
     },
     "public.task_status": {
@@ -1315,18 +1386,6 @@
       "values": [
         "pending",
         "done"
-      ]
-    },
-    "public.task_type": {
-      "name": "task_type",
-      "schema": "public",
-      "values": [
-        "do",
-        "reply",
-        "review",
-        "decide",
-        "intro",
-        "waiting_on"
       ]
     }
   },

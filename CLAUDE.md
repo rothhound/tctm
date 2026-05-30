@@ -78,10 +78,11 @@ apps/web/src/
   components/
     layout/               AppShell, BottomNav (badge counts), MobileHeader
     guards/               RequireAuth redirect
-    ui/                   TaskCard, SwipeableRow, Modal, AcceptPicker, ConfidenceBar,
-                          EntityChip, SourceIcon, WhyThisTask, EmptyState, LoadingSpinner
-  pages/                  InboxPage, ReviewPage, TodayPage, ThisWeekPage, WaitingOnPage,
-                          TaskDetailPage, LoginPage, SettingsPage
+    ui/                   TaskCard, TaskPanel (+ task-panel/ subcomponents), RichTextEditor,
+                          FilterDropdown, InlineDatePicker, ViewToggle, SourceIcon, TctmLogo,
+                          EmptyState, LoadingSpinner
+  pages/                  ActivePage, DonePage, ArchivePage, ReportedPage, SnoozedPage,
+                          LoginPage, SettingsPage  (task detail opens in TaskPanel via /{bucket}/:taskId)
   pages/settings/         AuditLogPage, SourceThresholdsPage, EntityManagementPage,
                           MetricsPage, PromptsPage
   hooks/                  usePushNotifications, useInstallPrompt
@@ -126,6 +127,7 @@ Prompts live in `prompt_versions` table, not in code. Each has a `purpose` (extr
 
 ## Key Conventions
 
+- **Primary keys**: all tables use 8-char base36 nanoids (e.g. `uxfvcpkl`), **not** UUIDs — generated app-side via `apps/api/src/utils/nanoid.ts`. In the schema, use the `pk()` / `fk(name)` helpers in `db/schema/index.ts` (both `varchar(8)`); never reintroduce `uuid()`/`defaultRandom()`. Singleton/config tables keep their semantic `text` PKs (`source`, `provider`, `'singleton'`).
 - **Global prefix**: `/api` in `main.ts`. Controllers use relative paths: `@Controller('tasks')`.
 - **Auth**: Google Sign-In only (single-tenant). Backend verifies Google ID tokens via `google-auth-library`, requires `email_verified=true` and a case-insensitive match against `ALLOWED_GOOGLE_EMAIL`, then issues a 24h JWT. `AuthGuard` is global; `@Public()` bypasses JWT for webhooks. Sliding refresh: `RefreshInterceptor` attaches `X-Refresh-Token` + `X-Refresh-Expires` headers when the access token is within 6h of expiry; the web client picks them up in its base query and updates `authSlice`.
 - **Webhook security**: Slack = HMAC, Gmail = Pub/Sub JWT, Notion = HMAC. Each verifies in controller.
@@ -156,16 +158,16 @@ Defined in `apps/api/src/shared/queues.module.ts`:
 
 See `apps/api/.env.example` for full list. Critical ones:
 - `JWT_SECRET` — signs the access token after Google verification
-- `GOOGLE_AUTH_CLIENT_ID` — Web-app OAuth client for Google Sign-In (separate from `GOOGLE_CLIENT_ID` used for Gmail/Drive scopes)
+- `GOOGLE_CLIENT_ID` — Web-app OAuth client; used for BOTH Google Sign-In (ID-token verification) and Gmail/Drive scopes
 - `ALLOWED_GOOGLE_EMAIL` — the single email permitted to sign in (case-insensitive)
-- `VITE_GOOGLE_AUTH_CLIENT_ID` (web) — same value as `GOOGLE_AUTH_CLIENT_ID`
+- `VITE_GOOGLE_CLIENT_ID` (web) — same value as `GOOGLE_CLIENT_ID`
 - `ANTHROPIC_API_KEY` — LLM calls
 - `DATABASE_URL` — Postgres connection
 - `REDIS_URL` (Heroku) or `REDIS_HOST`/`REDIS_PORT` (local) — BullMQ + cache
 - `PARTNER_NAME`, `PARTNER_ROLE` — injected into extraction prompts
 - `SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN`, `PARTNER_SLACK_USER_ID` — Slack integration
 - `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` — web push
-- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — Gmail OAuth
+- `GOOGLE_CLIENT_SECRET` — secret for the Gmail/Drive OAuth flow (pairs with `GOOGLE_CLIENT_ID` above)
 
 ## Security Policy
 
@@ -191,7 +193,7 @@ heroku addons:create heroku-redis:mini
 # Set config vars
 heroku config:set NODE_ENV=production
 heroku config:set JWT_SECRET=$(openssl rand -hex 32)
-heroku config:set GOOGLE_AUTH_CLIENT_ID='...apps.googleusercontent.com'
+heroku config:set GOOGLE_CLIENT_ID='...apps.googleusercontent.com'
 heroku config:set ALLOWED_GOOGLE_EMAIL='partner@example.com'
 heroku config:set ANTHROPIC_API_KEY=sk-ant-...
 heroku config:set PARTNER_NAME="Your Name"

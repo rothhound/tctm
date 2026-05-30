@@ -1,7 +1,7 @@
-import { useState } from 'react';
 import type { TaskDto } from '@tctm/shared';
 import { useGetDoneTasksQuery, useUncompleteTaskMutation } from '../store/api';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { useTaskRoute } from '../hooks/useTaskRoute';
 import { useTaskFilters } from '../hooks/useTaskFilters';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -12,7 +12,7 @@ export function DonePage() {
   usePageTitle('Done');
   const { data: tasks, isLoading } = useGetDoneTasksQuery();
   const [uncomplete] = useUncompleteTaskMutation();
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const { selectedTaskId, openTask, closeTask } = useTaskRoute('/done');
 
   const { filtered, filterBar, hasActiveFilters, totalCount, filteredCount } = useTaskFilters(tasks, {
     dateField: 'completedAt',
@@ -48,7 +48,7 @@ export function DonePage() {
                   task={task}
                   flavor="done"
                   isSelected={selectedTaskId === task.id}
-                  onSelect={(t: TaskDto) => setSelectedTaskId(t.id)}
+                  onSelect={(t: TaskDto) => openTask(t.id)}
                   onAction={(id) => uncomplete(id)}
                 />
               ))}
@@ -58,7 +58,7 @@ export function DonePage() {
       </div>
 
       {selectedTaskId && (
-        <TaskPanel taskId={selectedTaskId} onClose={() => setSelectedTaskId(null)} />
+        <TaskPanel taskId={selectedTaskId} onClose={closeTask} />
       )}
     </>
   );

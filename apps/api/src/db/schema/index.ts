@@ -1,5 +1,10 @@
-import { pgTable, uuid, text, jsonb, timestamp, boolean, pgEnum, integer, index, uniqueIndex, real } from 'drizzle-orm/pg-core';
-import { relations } from 'drizzle-orm';
+import { pgTable, varchar, text, jsonb, timestamp, boolean, pgEnum, integer, index, uniqueIndex, real } from 'drizzle-orm/pg-core';
+import { generateId } from '../../utils/nanoid';
+
+// All primary keys are 8-char base36 nanoids (see utils/nanoid.ts). `pk()` is the
+// id column; `fk(name)` is a reference column of the same shape.
+const pk = () => varchar('id', { length: 8 }).$defaultFn(() => generateId()).primaryKey();
+const fk = (name: string) => varchar(name, { length: 8 });
 
 // ============================================================================
 // ENUMS
@@ -23,10 +28,6 @@ export const taskStatusEnum = pgEnum('task_status', [
 export const taskBucketEnum = pgEnum('task_bucket', [
   'inbox',      // auto-created, not yet triaged
   'review',     // judge flagged for human review
-  'today',
-  'this_week',
-  'waiting_on',
-  'snoozed',
 ]);
 
 export const taskPriorityEnum = pgEnum('task_priority', [
@@ -34,15 +35,6 @@ export const taskPriorityEnum = pgEnum('task_priority', [
   'mid',
   'low',
   'none',
-]);
-
-export const taskTypeEnum = pgEnum('task_type', [
-  'do',           // generic action
-  'reply',        // respond to a message
-  'review',       // read/review a document
-  'decide',       // make a decision
-  'intro',        // make an introduction
-  'waiting_on',   // expecting something from someone
 ]);
 
 export const entityTypeEnum = pgEnum('entity_type', [
@@ -65,7 +57,7 @@ export const feedbackActionEnum = pgEnum('feedback_action', [
 // ============================================================================
 
 export const entities = pgTable('entities', {
-  id: uuid('id').defaultRandom().primaryKey(),
+  id: pk(),
   type: entityTypeEnum('type').notNull(),
   canonicalName: text('canonical_name').notNull(),
   aliases: jsonb('aliases').$type<string[]>().notNull().default([]),
@@ -73,8 +65,6 @@ export const entities = pgTable('entities', {
   emails: jsonb('emails').$type<string[]>().notNull().default([]),
   slackIds: jsonb('slack_ids').$type<string[]>().notNull().default([]),
   notionId: text('notion_id'),
-  relatedEntityIds: jsonb('related_entity_ids').$type<string[]>().notNull().default([]),
-  metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
   lastInteractionAt: timestamp('last_interaction_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -88,7 +78,7 @@ export const entities = pgTable('entities', {
 // ============================================================================
 
 export const signals = pgTable('signals', {
-  id: uuid('id').defaultRandom().primaryKey(),
+  id: pk(),
   source: sourceEnum('source').notNull(),
   subSource: text('sub_source'),  // 'slack_dm', 'slack_channel', 'gmail_vip', etc.
   externalId: text('external_id').notNull(),  // upstream message/note ID
@@ -107,7 +97,6 @@ export const signals = pgTable('signals', {
   }>().notNull(),
 
   // populated during extraction
-  resolvedEntityIds: jsonb('resolved_entity_ids').$type<string[]>().notNull().default([]),
   extractionAttempts: integer('extraction_attempts').notNull().default(0),
   lastError: text('last_error'),
 
@@ -124,22 +113,19 @@ export const signals = pgTable('signals', {
 // ============================================================================
 
 export const tasks = pgTable('tasks', {
-  id: uuid('id').defaultRandom().primaryKey(),
+  id: pk(),
   title: text('title').notNull(),
   description: text('description'),  // supports HTML from rich text editor
-  notes: text('notes'),              // user-added notes (HTML)
-  type: taskTypeEnum('type').notNull().default('do'),
   status: taskStatusEnum('status').notNull().default('pending'),
   bucket: taskBucketEnum('bucket').notNull().default('inbox'),
   priority: taskPriorityEnum('priority').notNull().default('none'),
   source: text('source'),  // 'gmail', 'slack', 'notion', 'granola', or null for manual
 
   dueAt: timestamp('due_at', { withTimezone: true }),
-  snoozeUntil: timestamp('snooze_until', { withTimezone: true }),
   reminderAt: timestamp('reminder_at', { withTimezone: true }),
 
   // Subtask hierarchy
-  parentTaskId: uuid('parent_task_id').references((): any => tasks.id, { onDelete: 'cascade' }),
+  parentTaskId: fk('parent_task_id').references((): any => tasks.id, { onDelete: 'cascade' }),
 
   // Recurrence
   recurrence: jsonb('recurrence').$type<{
@@ -176,7 +162,6 @@ export const tasks = pgTable('tasks', {
     extractedAt: string;
   }>(),
 
-  reviewRequired: boolean('review_required').notNull().default(false),
   autoCreated: boolean('auto_created').notNull().default(false),
 
   // Dedup hash for cross-signal task collapsing
@@ -211,8 +196,8 @@ export const tasks = pgTable('tasks', {
 // ============================================================================
 
 export const taskNotes = pgTable('task_notes', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  taskId: uuid('task_id').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
+  id: pk(),
+  taskId: fk('task_id').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
   content: text('content').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({
@@ -225,9 +210,9 @@ export const taskNotes = pgTable('task_notes', {
 // ============================================================================
 
 export const extractionFeedback = pgTable('extraction_feedback', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  taskId: uuid('task_id').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
-  signalId: uuid('signal_id').references(() => signals.id),
+  id: pk(),
+  taskId: fk('task_id').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
+  signalId: fk('signal_id').references(() => signals.id),
   action: feedbackActionEnum('action').notNull(),
   reason: text('reason'),  // optional dismissal/edit reason
   extractionSnapshot: jsonb('extraction_snapshot').notNull(),
@@ -306,11 +291,11 @@ export const granolaPollState = pgTable('granola_poll_state', {
 // ============================================================================
 
 export const llmAuditLog = pgTable('llm_audit_log', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  signalId: uuid('signal_id').references(() => signals.id),
-  taskId: uuid('task_id').references(() => tasks.id),
+  id: pk(),
+  signalId: fk('signal_id').references(() => signals.id),
+  taskId: fk('task_id').references(() => tasks.id),
   purpose: text('purpose').notNull(),  // 'extract', 'judge', 'snooze_parse', etc.
-  promptVersionId: uuid('prompt_version_id').references(() => promptVersions.id),
+  promptVersionId: fk('prompt_version_id').references(() => promptVersions.id),
   model: text('model').notNull(),
   inputTokens: integer('input_tokens'),
   outputTokens: integer('output_tokens'),
@@ -339,7 +324,7 @@ export const promptPurposeEnum = pgEnum('prompt_purpose', [
 ]);
 
 export const promptVersions = pgTable('prompt_versions', {
-  id: uuid('id').defaultRandom().primaryKey(),
+  id: pk(),
   purpose: promptPurposeEnum('purpose').notNull(),
   version: integer('version').notNull(),
   content: text('content').notNull(),           // full prompt template
@@ -368,35 +353,11 @@ export const promptVersions = pgTable('prompt_versions', {
 // ============================================================================
 
 export const pushSubscriptions = pgTable('push_subscriptions', {
-  id: uuid('id').defaultRandom().primaryKey(),
+  id: pk(),
   endpoint: text('endpoint').notNull(),
   keysP256dh: text('keys_p256dh').notNull(),
   keysAuth: text('keys_auth').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({
   endpointIdx: uniqueIndex('push_subscriptions_endpoint_idx').on(t.endpoint),
-}));
-
-// ============================================================================
-// RELATIONS
-// ============================================================================
-
-export const tasksRelations = relations(tasks, ({ one, many }) => ({
-  feedback: many(extractionFeedback),
-  notes: many(taskNotes),
-  subtasks: many(tasks, { relationName: 'subtasks' }),
-  parentTask: one(tasks, {
-    fields: [tasks.parentTaskId],
-    references: [tasks.id],
-    relationName: 'subtasks',
-  }),
-}));
-
-export const taskNotesRelations = relations(taskNotes, ({ one }) => ({
-  task: one(tasks, { fields: [taskNotes.taskId], references: [tasks.id] }),
-}));
-
-export const extractionFeedbackRelations = relations(extractionFeedback, ({ one }) => ({
-  task: one(tasks, { fields: [extractionFeedback.taskId], references: [tasks.id] }),
-  signal: one(signals, { fields: [extractionFeedback.signalId], references: [signals.id] }),
 }));

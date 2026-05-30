@@ -91,9 +91,9 @@ describe('LoginPage', () => {
     localStorage.clear();
   });
 
-  it('renders the app title and a sign-in prompt', () => {
+  it('renders the app logo and a sign-in prompt', () => {
     renderLoginPage();
-    expect(screen.getByText('Assistant')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'TCTM' })).toBeInTheDocument();
     expect(screen.getByText(/Sign in with your authorized Google account/i)).toBeInTheDocument();
   });
 

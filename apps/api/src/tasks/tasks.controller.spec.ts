@@ -23,7 +23,7 @@ describe('TasksController', () => {
   ];
 
   const mockSnoozedList = [
-    { id: 'task-5', title: 'Snoozed Task', status: 'pending', bucket: 'snoozed' },
+    { id: 'task-5', title: 'Snoozed Task', status: 'pending', bucket: 'inbox', reminderAt: '2099-01-01T00:00:00Z' },
   ];
 
   const mockSubtasks = [
@@ -45,11 +45,8 @@ describe('TasksController', () => {
       listByBucket: jest.fn().mockResolvedValue(mockPaginated),
       getCounts: jest.fn().mockResolvedValue({ pending: 2, done: 0, total: 2 }),
       findOne: jest.fn().mockResolvedValue(mockPaginated.data[0]),
-      accept: jest.fn().mockResolvedValue(undefined),
-      dismiss: jest.fn().mockResolvedValue(undefined),
       edit: jest.fn().mockResolvedValue(undefined),
       complete: jest.fn().mockResolvedValue(undefined),
-      snooze: jest.fn().mockResolvedValue(undefined),
       listArchived: jest.fn().mockResolvedValue(mockArchivedList),
       listReported: jest.fn().mockResolvedValue(mockReportedList),
       listSnoozed: jest.fn().mockResolvedValue(mockSnoozedList),
@@ -96,24 +93,9 @@ describe('TasksController', () => {
     expect(result).toEqual(mockPaginated.data[0]);
   });
 
-  it('accepts a task', async () => {
-    await controller.accept('task-1', { bucket: 'today' });
-    expect(tasksService.accept).toHaveBeenCalledWith('task-1', 'today');
-  });
-
-  it('dismisses a task', async () => {
-    await controller.dismiss('task-1', { reason: 'Not mine' });
-    expect(tasksService.dismiss).toHaveBeenCalledWith('task-1', 'Not mine');
-  });
-
   it('completes a task', async () => {
     await controller.complete('task-1');
     expect(tasksService.complete).toHaveBeenCalledWith('task-1');
-  });
-
-  it('snoozes a task', async () => {
-    await controller.snooze('task-1', { until: '2026-05-25T09:00:00Z' });
-    expect(tasksService.snooze).toHaveBeenCalledWith('task-1', '2026-05-25T09:00:00Z');
   });
 
   it('lists archived tasks', async () => {

@@ -7,7 +7,7 @@ export type DateRange = 'all' | 'today' | 'week' | 'month';
 export type SourceFilter = 'all' | 'gmail' | 'slack' | 'notion' | 'granola';
 export type PriorityFilter = 'all' | TaskPriority;
 
-type TaskDateField = 'completedAt' | 'archivedAt' | 'reportedAt' | 'reminderAt' | 'snoozeUntil' | 'createdAt' | 'updatedAt' | 'dueAt';
+type TaskDateField = 'completedAt' | 'archivedAt' | 'reportedAt' | 'reminderAt' | 'createdAt' | 'updatedAt' | 'dueAt';
 
 interface UseTaskFiltersOptions {
   /** Field on TaskDto to compare against the date filter. */

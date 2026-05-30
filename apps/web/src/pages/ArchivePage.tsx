@@ -1,7 +1,7 @@
-import { useState } from 'react';
 import type { TaskDto } from '@tctm/shared';
 import { useGetArchivedTasksQuery, useUnarchiveTaskMutation } from '../store/api';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { useTaskRoute } from '../hooks/useTaskRoute';
 import { useTaskFilters } from '../hooks/useTaskFilters';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -12,7 +12,7 @@ export function ArchivePage() {
   usePageTitle('Archived');
   const { data: tasks, isLoading } = useGetArchivedTasksQuery();
   const [unarchive] = useUnarchiveTaskMutation();
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const { selectedTaskId, openTask, closeTask } = useTaskRoute('/archive');
 
   const { filtered, filterBar, hasActiveFilters, totalCount, filteredCount } = useTaskFilters(tasks, {
     dateField: 'archivedAt',
@@ -48,7 +48,7 @@ export function ArchivePage() {
                   task={task}
                   flavor="archived"
                   isSelected={selectedTaskId === task.id}
-                  onSelect={(t: TaskDto) => setSelectedTaskId(t.id)}
+                  onSelect={(t: TaskDto) => openTask(t.id)}
                   onAction={(id) => unarchive(id)}
                 />
               ))}
@@ -58,7 +58,7 @@ export function ArchivePage() {
       </div>
 
       {selectedTaskId && (
-        <TaskPanel taskId={selectedTaskId} onClose={() => setSelectedTaskId(null)} />
+        <TaskPanel taskId={selectedTaskId} onClose={closeTask} />
       )}
     </>
   );

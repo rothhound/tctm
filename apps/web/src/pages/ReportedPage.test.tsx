@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
 import { ReportedPage } from './ReportedPage';
@@ -15,6 +15,11 @@ vi.mock('../store/api', async () => {
     useUnreportTaskMutation: vi.fn(),
   };
 });
+
+// Stub the detail panel so the deep-link test targets routing, not TaskPanel's data hooks.
+vi.mock('../components/ui/TaskPanel', () => ({
+  TaskPanel: ({ taskId }: { taskId: string }) => <div data-testid="task-panel">panel:{taskId}</div>,
+}));
 
 import { useGetReportedTasksQuery, useUnreportTaskMutation } from '../store/api';
 const mockedQuery = vi.mocked(useGetReportedTasksQuery);
@@ -32,6 +37,19 @@ function renderPage() {
     <Provider store={makeStore()}>
       <MemoryRouter>
         <ReportedPage />
+      </MemoryRouter>
+    </Provider>,
+  );
+}
+
+function renderPageAt(path: string) {
+  return render(
+    <Provider store={makeStore()}>
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route path="/reported" element={<ReportedPage />} />
+          <Route path="/reported/:taskId" element={<ReportedPage />} />
+        </Routes>
       </MemoryRouter>
     </Provider>,
   );
@@ -82,5 +100,17 @@ describe('ReportedPage', () => {
     } as any);
     renderPage();
     expect(screen.getByText('Reported (2)')).toBeInTheDocument();
+  });
+
+  it('opens the task panel when a taskId is in the URL (deep link)', () => {
+    mockedQuery.mockReturnValue({ data: [], isLoading: false } as any);
+    renderPageAt('/reported/task-123');
+    expect(screen.getByTestId('task-panel')).toHaveTextContent('panel:task-123');
+  });
+
+  it('does not open the task panel on the bare list URL', () => {
+    mockedQuery.mockReturnValue({ data: [], isLoading: false } as any);
+    renderPageAt('/reported');
+    expect(screen.queryByTestId('task-panel')).not.toBeInTheDocument();
   });
 });

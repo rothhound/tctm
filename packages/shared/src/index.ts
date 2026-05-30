@@ -8,7 +8,6 @@ export type {
   TaskPriority,
   TaskStatus,
   TaskBucket,
-  TaskType,
   PaginatedResponse,
   LoginResponse,
   ReportReason,

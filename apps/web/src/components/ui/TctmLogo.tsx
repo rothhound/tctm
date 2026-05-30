@@ -6,7 +6,7 @@ const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica 
 
 export function TctmLogo({ size = 32 }: TctmLogoProps) {
   return (
-    <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
+    <svg width={size} height={size} viewBox="0 0 40 40" fill="none" role="img" aria-label="TCTM">
       <rect x="1" y="1" width="38" height="38" rx="6" stroke="var(--color-text)" strokeWidth="1.5" fill="none" />
       <text
         x="20"

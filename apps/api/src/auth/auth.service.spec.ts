@@ -29,7 +29,7 @@ describe('AuthService', () => {
           useValue: {
             getOrThrow: (key: string) => {
               if (key === 'JWT_SECRET') return JWT_SECRET;
-              if (key === 'GOOGLE_AUTH_CLIENT_ID') return CLIENT_ID;
+              if (key === 'GOOGLE_CLIENT_ID') return CLIENT_ID;
               if (key === 'ALLOWED_GOOGLE_EMAIL') return ALLOWED_EMAIL;
               throw new Error(`Unknown config key: ${key}`);
             },

@@ -23,10 +23,15 @@ export default function App() {
           <Route element={<AppShell />}>
             <Route path="/" element={<Navigate to="/active" replace />} />
             <Route path="/active" element={<ActivePage />} />
+            <Route path="/active/:taskId" element={<ActivePage />} />
             <Route path="/done" element={<DonePage />} />
+            <Route path="/done/:taskId" element={<DonePage />} />
             <Route path="/archive" element={<ArchivePage />} />
+            <Route path="/archive/:taskId" element={<ArchivePage />} />
             <Route path="/reported" element={<ReportedPage />} />
+            <Route path="/reported/:taskId" element={<ReportedPage />} />
             <Route path="/snoozed" element={<SnoozedPage />} />
+            <Route path="/snoozed/:taskId" element={<SnoozedPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/settings/audit" element={<AuditLogPage />} />
             <Route path="/settings/thresholds" element={<SourceThresholdsPage />} />

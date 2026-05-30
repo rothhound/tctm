@@ -272,7 +272,7 @@ async function run() {
 
   // Seed tasks
   console.log('Seeding 80 tasks...');
-  const buckets = ['inbox', 'review', 'today', 'this_week', 'waiting_on', 'snoozed'] as const;
+  const buckets = ['inbox', 'review'] as const;
   const priorities = ['high', 'mid', 'low'] as const;
   const taskTypes = Object.keys(TASK_TEMPLATES) as Array<keyof typeof TASK_TEMPLATES>;
   const parentTaskIds: string[] = [];
@@ -313,14 +313,12 @@ async function run() {
       .values({
         title,
         description: Math.random() > 0.3 ? `<p>${pick(COMPANIES)} — ${pick(PEOPLE).role}. ${Math.random() > 0.5 ? '<strong>Urgent</strong> — ' : ''}needs attention by ${pick(['end of week', 'tomorrow', 'next Monday', 'board meeting', 'closing date'])}.</p>` : null,
-        type,
         status: isDone ? 'done' : 'pending',
         bucket,
         priority,
         source: pick(['slack', 'gmail', 'notion', 'granola']),
         dueAt,
         reminderAt: hasReminder ? randomDate(1, 7) : null,
-        snoozeUntil: bucket === 'snoozed' ? randomDate(1, 10) : null,
         recurrence: hasRecurrence ? {
           pattern: pick(['daily', 'weekly', 'monthly']) as 'daily' | 'weekly' | 'monthly',
           interval: randInt(1, 3),
@@ -329,7 +327,6 @@ async function run() {
         sourceSignalIds: signalIds.length > 0 ? pickN(signalIds, randInt(0, 2)) : [],
         waitingOnEntityIds: type === 'waiting_on' ? pickN(entityIds, randInt(1, 2)) : [],
         extraction: isReported || Math.random() < 0.85 ? makeExtraction() : null,
-        reviewRequired: bucket === 'review',
         autoCreated: isAutoCreated,
         dedupHash: `seed-${i}-${Date.now().toString(36)}`,
         archived: isArchived,
@@ -363,9 +360,8 @@ async function run() {
       const subDone = Math.random() < 0.4;
       await db.insert(tasks).values({
         title: subtaskNames[j],
-        type: 'do',
         status: subDone ? 'done' : 'pending',
-        bucket: 'today',
+        bucket: 'inbox',
         priority: pick([...priorities]),
         parentTaskId: parentId,
         completedAt: subDone ? randomDate(7, 0) : null,

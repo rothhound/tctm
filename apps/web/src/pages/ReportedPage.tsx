@@ -1,7 +1,7 @@
-import { useState } from 'react';
 import type { TaskDto } from '@tctm/shared';
 import { useGetReportedTasksQuery, useUnreportTaskMutation } from '../store/api';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { useTaskRoute } from '../hooks/useTaskRoute';
 import { useTaskFilters } from '../hooks/useTaskFilters';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -12,7 +12,7 @@ export function ReportedPage() {
   usePageTitle('Reported');
   const { data: tasks, isLoading } = useGetReportedTasksQuery();
   const [unreport] = useUnreportTaskMutation();
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const { selectedTaskId, openTask, closeTask } = useTaskRoute('/reported');
 
   const { filtered, filterBar, hasActiveFilters, totalCount, filteredCount } = useTaskFilters(tasks, {
     dateField: 'reportedAt',
@@ -48,7 +48,7 @@ export function ReportedPage() {
                   task={task}
                   flavor="reported"
                   isSelected={selectedTaskId === task.id}
-                  onSelect={(t: TaskDto) => setSelectedTaskId(t.id)}
+                  onSelect={(t: TaskDto) => openTask(t.id)}
                   onAction={(id) => unreport(id)}
                 />
               ))}
@@ -58,7 +58,7 @@ export function ReportedPage() {
       </div>
 
       {selectedTaskId && (
-        <TaskPanel taskId={selectedTaskId} onClose={() => setSelectedTaskId(null)} />
+        <TaskPanel taskId={selectedTaskId} onClose={closeTask} />
       )}
     </>
   );

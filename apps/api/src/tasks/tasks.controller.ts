@@ -51,23 +51,10 @@ export class TasksController {
     return this.tasks.getSubtasks(id);
   }
 
-  @Post(':id/accept')
-  accept(
-    @Param('id') id: string,
-    @Body() body: { bucket: 'today' | 'this_week' | 'waiting_on' | 'snoozed' },
-  ) {
-    return this.tasks.accept(id, body.bucket);
-  }
-
   @Patch(':id')
   edit(@Param('id') id: string, @Body() body: any) {
     const { reason, ...updates } = body;
     return this.tasks.edit(id, updates, reason);
-  }
-
-  @Post(':id/dismiss')
-  dismiss(@Param('id') id: string, @Body() body: { reason?: string }) {
-    return this.tasks.dismiss(id, body.reason);
   }
 
   @Post(':id/complete')
@@ -78,11 +65,6 @@ export class TasksController {
   @Post(':id/uncomplete')
   uncomplete(@Param('id') id: string) {
     return this.tasks.uncomplete(id);
-  }
-
-  @Post(':id/snooze')
-  snooze(@Param('id') id: string, @Body() body: { until: string }) {
-    return this.tasks.snooze(id, body.until);
   }
 
   @Post(':id/archive')

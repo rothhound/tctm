@@ -38,13 +38,13 @@ export class WaitingOnService {
     }
     if (!authorEntity) return;
 
-    // Find open waiting_on tasks where this entity is in waitingOnEntityIds
+    // Find open tasks where this entity is in waitingOnEntityIds (only waiting-on
+    // tasks ever populate that array, so it is the authoritative selector).
     const waitingTasks = await this.db
       .select()
       .from(tasks)
       .where(
         and(
-          eq(tasks.bucket, 'waiting_on'),
           eq(tasks.status, 'pending'),
           sql`${tasks.waitingOnEntityIds}::jsonb @> ${JSON.stringify([authorEntity.id])}::jsonb`,
         ),

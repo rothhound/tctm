@@ -23,7 +23,7 @@ export class AuthService {
 
   constructor(private readonly config: ConfigService) {
     this.jwtSecret = config.getOrThrow<string>('JWT_SECRET');
-    this.googleClientId = config.getOrThrow<string>('GOOGLE_AUTH_CLIENT_ID');
+    this.googleClientId = config.getOrThrow<string>('GOOGLE_CLIENT_ID');
     this.allowedEmail = config.getOrThrow<string>('ALLOWED_GOOGLE_EMAIL').toLowerCase();
     this.oauthClient = new OAuth2Client(this.googleClientId);
   }

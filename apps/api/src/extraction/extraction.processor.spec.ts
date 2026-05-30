@@ -27,7 +27,6 @@ describe('SignalExtractProcessor', () => {
     status: 'pending' as const,
     extractionAttempts: 0,
     lastError: null,
-    resolvedEntityIds: [],
     createdAt: new Date(),
     processedAt: null,
     payload: {
@@ -158,7 +157,6 @@ describe('SignalExtractProcessor', () => {
 
     const createCall = (mockTasksService.createFromExtraction as jest.Mock).mock.calls[0][0];
     expect(createCall.finalBucket).toBe('review');
-    expect(createCall.reviewRequired).toBe(true);
   });
 
   it('routes KEEP verdict with high confidence to inbox', async () => {

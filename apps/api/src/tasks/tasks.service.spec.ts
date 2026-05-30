@@ -12,7 +12,6 @@ describe('TasksService', () => {
     id: 'task-001',
     title: 'Send cap table',
     description: 'To Roelof',
-    type: 'do',
     status: 'pending',
     bucket: 'inbox',
     priority: 'mid',
@@ -30,7 +29,6 @@ describe('TasksService', () => {
     waitingOnEntityIds: [],
     extraction: { sourceQuote: 'send cap table', confidence: 0.92, signals: {} },
     autoCreated: true,
-    reviewRequired: false,
     dedupHash: 'abc123',
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -138,7 +136,6 @@ describe('TasksService', () => {
         judgeVerdict: mockJudgeVerdict,
         finalBucket: 'inbox',
         dismissed: false,
-        reviewRequired: false,
         autoCreated: true,
         dedupHash: 'abc123',
       });
@@ -159,7 +156,6 @@ describe('TasksService', () => {
         judgeVerdict: mockJudgeVerdict,
         finalBucket: 'inbox',
         dismissed: false,
-        reviewRequired: false,
         autoCreated: true,
         dedupHash: 'abc123',
       });
@@ -360,27 +356,6 @@ describe('TasksService', () => {
     });
   });
 
-  // ── accept ────────────────────────────────────────────────────
-
-  describe('accept', () => {
-    it('updates task bucket and records feedback', async () => {
-      queryResults = [
-        [mockTask],
-        undefined,
-        [],
-      ];
-
-      await service.accept('task-001', 'today');
-      expect(mockDb.update).toHaveBeenCalled();
-      expect(mockDb.insert).toHaveBeenCalled();
-    });
-
-    it('throws when task not found', async () => {
-      queryResults = [[]];
-      await expect(service.accept('nonexistent', 'today')).rejects.toThrow(NotFoundException);
-    });
-  });
-
   // ── edit ──────────────────────────────────────────────────────
 
   describe('edit', () => {
@@ -413,21 +388,6 @@ describe('TasksService', () => {
     it('throws when task not found', async () => {
       queryResults = [[]];
       await expect(service.edit('nonexistent', { title: 'x' })).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  // ── dismiss ───────────────────────────────────────────────────
-
-  describe('dismiss', () => {
-    it('archives task and records feedback', async () => {
-      queryResults = [[mockTask], undefined, []];
-      await service.dismiss('task-001', 'Not my task');
-      expect(mockDb.update).toHaveBeenCalled();
-    });
-
-    it('throws when task not found', async () => {
-      queryResults = [[]];
-      await expect(service.dismiss('nonexistent')).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -490,21 +450,6 @@ describe('TasksService', () => {
 
       await service.complete('task-001');
       expect(mockDb.insert).toHaveBeenCalled();
-    });
-  });
-
-  // ── snooze ────────────────────────────────────────────────────
-
-  describe('snooze', () => {
-    it('snoozes task and records feedback', async () => {
-      queryResults = [[mockTask], undefined, []];
-      await service.snooze('task-001', '2026-05-25T09:00:00Z');
-      expect(mockDb.update).toHaveBeenCalled();
-    });
-
-    it('throws when task not found', async () => {
-      queryResults = [[]];
-      await expect(service.snooze('nonexistent', '2026-05-25T09:00:00Z')).rejects.toThrow(NotFoundException);
     });
   });
 

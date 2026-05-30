@@ -177,14 +177,12 @@ export class SignalExtractProcessor extends WorkerHost {
     // Final routing decision
     let finalBucket: 'inbox' | 'review' = 'inbox';
     let dismissed = false;
-    let reviewRequired = false;
     let autoCreated = false;
 
     if (judgeVerdict.verdict === 'DISMISS') {
       dismissed = true;
     } else if (judgeVerdict.verdict === 'REVIEW' || !meetsAutoCreate) {
       finalBucket = 'review';
-      reviewRequired = true;
     } else {
       finalBucket = 'inbox';
       autoCreated = true;
@@ -203,7 +201,6 @@ export class SignalExtractProcessor extends WorkerHost {
       judgeVerdict,
       finalBucket,
       dismissed,
-      reviewRequired,
       autoCreated,
       dedupHash,
     });
