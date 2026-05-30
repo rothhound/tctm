@@ -3,8 +3,9 @@ describe('Snoozed', () => {
     cy.login();
     cy.interceptApi();
     cy.fixture('tasks').then((tasks) => {
+      // Snoozed = a task with a future reminder (not archived/reported); bucket is no longer used.
       cy.intercept('GET', '/api/tasks/snoozed', {
-        body: tasks.filter((t: any) => t.bucket === 'snoozed'),
+        body: tasks.filter((t: any) => t.reminderAt && !t.archived && !t.reported),
       }).as('getSnoozed');
     });
     cy.visit('/snoozed');

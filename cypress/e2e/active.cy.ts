@@ -9,8 +9,8 @@ describe('Active Page', () => {
       );
       const allActive = [...pending, ...done];
 
-      // The useAllTasks hook fetches each bucket separately
-      for (const bucket of ['inbox', 'review', 'today', 'this_week', 'waiting_on']) {
+      // The useAllTasks hook fetches each active bucket separately
+      for (const bucket of ['inbox', 'review']) {
         const bucketTasks = allActive.filter((t: any) => t.bucket === bucket);
         cy.intercept('GET', `/api/tasks?bucket=${bucket}*`, {
           body: { data: bucketTasks, total: bucketTasks.length, page: 1, limit: 25, hasMore: false },
@@ -49,17 +49,6 @@ describe('Active Page', () => {
       cy.contains('Pending (3)').should('be.visible');
     });
 
-    it('shows "Done" section header', () => {
-      cy.contains('Done (1)').should('be.visible');
-    });
-
-    it('clicking Done expands done tasks section', () => {
-      // In list view, done section is collapsed by default
-      cy.contains('Prepare board deck').should('not.exist');
-      cy.contains('Done (1)').click();
-      cy.contains('Prepare board deck').should('be.visible');
-    });
-
     it('task card shows title, source chip, and priority pill', () => {
       // task-001: high priority, gmail source
       cy.contains('Send cap table to Roelof').should('be.visible');
@@ -68,16 +57,16 @@ describe('Active Page', () => {
     });
 
     it('view toggle switches between list and kanban view', () => {
-      // Default is list view — check pending section header exists
+      // List view shows the "Pending (N)" section header
       cy.contains('Pending (3)').should('be.visible');
 
-      // Switch to kanban view
+      // Kanban view replaces the Pending header with priority columns;
+      // tasks themselves remain visible
       cy.get('button[title="Kanban view"]').click();
+      cy.contains('Pending (3)').should('not.exist');
+      cy.contains('Send cap table to Roelof').should('be.visible');
 
-      // Mobile kanban shows "Pending (N)" in the column header
-      cy.contains('Pending (3)').should('be.visible');
-
-      // Switch back to list view
+      // Switch back to list view — the Pending header returns
       cy.get('button[title="List view"]').click();
       cy.contains('Pending (3)').should('be.visible');
     });

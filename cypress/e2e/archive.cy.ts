@@ -19,7 +19,9 @@ describe('Archive', () => {
   });
 
   it('shows "Archived" date on card', () => {
-    cy.contains('Old archived task').parent().contains('Archived').should('be.visible');
+    cy.contains('Old archived task').should('be.visible');
+    // The card renders an "Archived <date>" label (only one archived task in the fixture)
+    cy.contains(/^Archived /).should('be.visible');
   });
 
   it('shows "Restore" button on each card', () => {
