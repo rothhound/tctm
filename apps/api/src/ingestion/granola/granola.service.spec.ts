@@ -9,21 +9,26 @@ import { QUEUES } from '../../shared/queues.module';
 const mockFetch = jest.fn();
 global.fetch = mockFetch as any;
 
+const noteSummary = {
+  id: 'not_abc123',
+  object: 'note',
+  title: 'Board meeting',
+  owner: { name: 'Jane', email: 'jane@firm.com' },
+  created_at: '2026-05-19T10:00:00Z',
+  updated_at: '2026-05-19T10:30:00Z',
+};
+
+function listResponse(notes: any[], hasMore = false, cursor: string | null = null) {
+  return { ok: true, json: () => Promise.resolve({ notes, hasMore, cursor }) };
+}
+function noteResponse(detail: any) {
+  return { ok: true, json: () => Promise.resolve(detail) };
+}
+
 describe('GranolaService', () => {
   let service: GranolaService;
   let mockDb: any;
   let mockQueue: any;
-
-  const mockNote = {
-    id: 'note-001',
-    title: 'Board meeting',
-    created_at: '2026-05-19T10:00:00Z',
-    action_items: [
-      { id: 'ai-1', text: 'Send updated financials to board', assignee: 'Jane', completed: false },
-      { id: 'ai-2', text: 'Follow up on hiring plan', completed: false },
-      { id: 'ai-3', text: 'Already done item', completed: true },
-    ],
-  };
 
   beforeEach(async () => {
     mockDb = {
@@ -48,35 +53,72 @@ describe('GranolaService', () => {
         GranolaService,
         { provide: DB, useValue: mockDb },
         { provide: getQueueToken(QUEUES.SIGNALS_EXTRACT), useValue: mockQueue },
-        { provide: ConfigService, useValue: { get: (k: string) => k === 'GRANOLA_API_KEY' ? 'test-key' : '' } },
+        {
+          provide: ConfigService,
+          useValue: { get: (k: string, def?: any) => (k === 'GRANOLA_API_KEY' ? 'test-key' : def ?? '') },
+        },
       ],
     }).compile();
 
     service = module.get<GranolaService>(GranolaService);
-    mockFetch.mockClear();
+    mockFetch.mockReset();
   });
 
-  it('fetches notes and creates signals for uncompleted action items', async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ notes: [mockNote] }),
-    });
+  it('lists notes, fetches each summary, and creates one signal per note', async () => {
+    mockFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes('/notes/')
+          ? noteResponse({ ...noteSummary, summary_text: 'Discussed Q2 hiring and budget.', web_url: 'https://notes.granola.ai/d/x' })
+          : listResponse([noteSummary]),
+      ),
+    );
 
     await service.poll();
 
-    // 2 uncompleted action items → 2 signals inserted → 2 queue adds
-    // (the completed item ai-3 is filtered out)
-    expect(mockQueue.add).toHaveBeenCalledTimes(2);
+    // one note → list + get-note fetch → one signal → one extract enqueue
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockQueue.add).toHaveBeenCalledTimes(1);
+
+    // verify the list call hit the real public API with the right params
+    const listUrl = mockFetch.mock.calls[0][0] as string;
+    expect(listUrl).toContain('public-api.granola.ai/v1/notes');
+    expect(listUrl).toContain('updated_after=');
+    expect(listUrl).toContain('page_size=30');
   });
 
-  it('skips notes with no action items', async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ notes: [{ id: 'note-002', title: 'No items', created_at: '2026-05-19T11:00:00Z', action_items: [] }] }),
-    });
+  it('skips a note that has no summary yet', async () => {
+    mockFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes('/notes/')
+          ? noteResponse({ ...noteSummary, summary_text: '', summary_markdown: null })
+          : listResponse([noteSummary]),
+      ),
+    );
 
     await service.poll();
     expect(mockQueue.add).not.toHaveBeenCalled();
+  });
+
+  it('follows cursor pagination across pages', async () => {
+    let listCalls = 0;
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes('/notes/')) {
+        return Promise.resolve(noteResponse({ ...noteSummary, summary_text: 'summary' }));
+      }
+      listCalls++;
+      return Promise.resolve(
+        listCalls === 1
+          ? listResponse([{ ...noteSummary, id: 'not_page1' }], true, 'cursor-2')
+          : listResponse([{ ...noteSummary, id: 'not_page2' }], false, null),
+      );
+    });
+
+    await service.poll();
+
+    expect(listCalls).toBe(2); // followed the cursor to page 2
+    expect(mockQueue.add).toHaveBeenCalledTimes(2); // both notes ingested
+    const carriedCursor = mockFetch.mock.calls.some((c) => (c[0] as string).includes('cursor=cursor-2'));
+    expect(carriedCursor).toBe(true);
   });
 
   it('handles API errors gracefully', async () => {
@@ -93,7 +135,7 @@ describe('GranolaService', () => {
         GranolaService,
         { provide: DB, useValue: mockDb },
         { provide: getQueueToken(QUEUES.SIGNALS_EXTRACT), useValue: mockQueue },
-        { provide: ConfigService, useValue: { get: () => '' } },
+        { provide: ConfigService, useValue: { get: (_k: string, def?: any) => def ?? '' } },
       ],
     }).compile();
 

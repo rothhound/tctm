@@ -283,7 +283,7 @@ Note this is a conjunction across **multiple axes**, not a single `confidence > 
 
 | Sub-source | Bias | Reason |
 |-----------|------|--------|
-| `granola` | Aggressive | Granola already extracts action items; we're re-confirming, not discovering |
+| `granola` | Aggressive | Meeting-note summaries are dense with commitments; high signal quality |
 | `slack_reaction` | Always create | Partner explicitly tagged with 🎯 — no judgment needed |
 | `slack_dm` | Moderate | Direct ask, but tone varies (some DMs are casual) |
 | `slack_channel` | Conservative | High noise; lots of FYI |
@@ -415,14 +415,14 @@ For a partner at a top VC, this is rounding error. But if costs need to drop, th
 **Mechanism**: Polling (Granola has no public webhooks as of 2026; on their roadmap)
 
 **Setup** (one-time):
-1. Generate Granola Personal API key
-2. Store in Secrets Manager
+1. Generate a Granola API key (`grn_…`) in the desktop app: Settings → Connectors → API keys
+2. Store as `GRANOLA_API_KEY`
 
-**Polling loop**:
+**Polling loop** (base `https://public-api.granola.ai/v1`, auth `Bearer grn_…`):
 1. BullMQ repeatable job every 30 seconds
-2. Call `GET /v1/notes?since=<lastPolledAt>`
-3. For each new note: extract structured action items (Granola pre-extracts these)
-4. For each action item, build a Signal with subSource `granola`
+2. `GET /v1/notes?updated_after=<lastPolledAt>&page_size=30` (follow `cursor`/`hasMore` for pagination)
+3. For each note: `GET /v1/notes/{id}` for its `summary_text`
+4. Build one Signal per note (body = summary) with subSource `granola` — the extractor pulls tasks (the API has **no** pre-extracted action items)
 5. Update `granola_poll_state.lastPolledAt`
 
 **Why polling at 30s is fine**: Granola notes are appended after meetings end, not during. 30s lag is invisible. If Granola ships webhooks, swap the cron for a controller — Signal layer doesn't care.
