@@ -167,4 +167,36 @@ describe('SignalExtractProcessor', () => {
     expect(createCall.finalBucket).toBe('inbox');
     expect(createCall.autoCreated).toBe(true);
   });
+
+  it('synthesizes a fallback task for an explicit capture that the extractor returns noTask for', async () => {
+    selectResults.length = 0;
+    selectResults.push([{ ...mockSignal, subSource: 'slack_capture' }], []);
+    (mockExtractor.extract as jest.Mock).mockResolvedValue(noTaskOutput);
+
+    const job = { data: { signalId: 'sig-001' } } as Job<{ signalId: string }>;
+    await processor.process(job);
+
+    // Explicit captures must never be dropped — a task is still created (judge bypassed → inbox).
+    expect(mockJudge.judge).not.toHaveBeenCalled();
+    expect(mockTasksService.createFromExtraction).toHaveBeenCalled();
+    const createCall = (mockTasksService.createFromExtraction as jest.Mock).mock.calls[0][0];
+    expect(createCall.finalBucket).toBe('inbox');
+    expect(createCall.autoCreated).toBe(true);
+  });
+
+  it('bypasses the judge for explicit Slack captures (@tctm / 🎯) and routes straight to inbox', async () => {
+    selectResults.length = 0;
+    selectResults.push([{ ...mockSignal, subSource: 'slack_capture' }], []);
+
+    const job = { data: { signalId: 'sig-001' } } as Job<{ signalId: string }>;
+    await processor.process(job);
+
+    expect(mockJudge.judge).not.toHaveBeenCalled();
+    const createCall = (mockTasksService.createFromExtraction as jest.Mock).mock.calls[0][0];
+    expect(createCall.subSource).toBe('slack_capture');
+    expect(createCall.finalBucket).toBe('inbox');
+    expect(createCall.autoCreated).toBe(true);
+    expect(createCall.dismissed).toBe(false);
+    expect(createCall.judgeVerdict.verdict).toBe('KEEP');
+  });
 });

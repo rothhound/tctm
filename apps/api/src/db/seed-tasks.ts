@@ -117,7 +117,7 @@ const SUBTASK_TEMPLATES = [
 
 const SOURCES: Array<'slack' | 'gmail' | 'notion' | 'granola'> = ['slack', 'gmail', 'notion', 'granola'];
 const SUB_SOURCES: Record<string, string[]> = {
-  slack: ['slack_dm', 'slack_channel', 'slack_reaction'],
+  slack: ['slack_capture', 'slack_channel', 'slack_reaction'],
   gmail: ['gmail_vip', 'gmail_cold'],
   notion: ['notion_mention', 'notion_assigned'],
   granola: ['granola'],

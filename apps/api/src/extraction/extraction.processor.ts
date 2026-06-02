@@ -26,7 +26,7 @@ interface SourceThresholds {
 }
 
 const DEFAULT_THRESHOLDS: Record<string, SourceThresholds> = {
-  // Granola action items are already pre-extracted — bias aggressive
+  // Granola signals are dense AI meeting summaries (high signal quality) — bias aggressive
   granola: {
     autoCreate: { explicitness: 0.6, actionability: 0.7, addressedToUser: 0.7, overallConfidence: 0.65 },
     skipBelow: { explicitness: 0.3, actionability: 0.4 },
@@ -36,12 +36,17 @@ const DEFAULT_THRESHOLDS: Record<string, SourceThresholds> = {
     autoCreate: { explicitness: 0.75, actionability: 0.75, addressedToUser: 0.85, overallConfidence: 0.75 },
     skipBelow: { explicitness: 0.4, actionability: 0.4 },
   },
-  // Slack channel mentions — high noise
+  // Slack channel messages anchored on the partner (tag / name / thread) — high noise, conservative
   slack_channel: {
     autoCreate: { explicitness: 0.9, actionability: 0.85, addressedToUser: 0.9, overallConfidence: 0.85 },
     skipBelow: { explicitness: 0.5, actionability: 0.5 },
   },
-  // Slack reaction trigger (🎯) — explicit user gesture, always auto
+  // Slack @tctm capture — explicit partner gesture, always auto (judge bypassed in handleExtractedTask)
+  slack_capture: {
+    autoCreate: { explicitness: 0, actionability: 0, addressedToUser: 0, overallConfidence: 0 },
+    skipBelow: { explicitness: 0, actionability: 0 },
+  },
+  // Slack 🎯 reaction capture — explicit partner gesture, always auto (judge bypassed)
   slack_reaction: {
     autoCreate: { explicitness: 0, actionability: 0, addressedToUser: 0, overallConfidence: 0 },
     skipBelow: { explicitness: 0, actionability: 0 },
@@ -67,6 +72,13 @@ const DEFAULT_THRESHOLDS: Record<string, SourceThresholds> = {
     skipBelow: { explicitness: 0.3, actionability: 0.3 },
   },
 };
+
+/**
+ * Sub-sources where the PARTNER explicitly asked for the capture (Slack @tctm / 🎯 reaction).
+ * These bypass the skip-below gate and the adversarial judge and route straight to the inbox —
+ * the partner's intent is the QC. Passive `slack_channel` is NOT here; it runs the normal pipeline.
+ */
+const EXPLICIT_SLACK_SUBSOURCES = new Set(['slack_capture', 'slack_reaction']);
 
 @Processor(QUEUES.SIGNALS_EXTRACT, { concurrency: 3 })
 export class SignalExtractProcessor extends WorkerHost {
@@ -101,6 +113,9 @@ export class SignalExtractProcessor extends WorkerHost {
       .where(eq(signals.id, signalId));
 
     // 1. Extract
+    const subSourceKey = signal.subSource ?? signal.source;
+    const isExplicit = EXPLICIT_SLACK_SUBSOURCES.has(subSourceKey);
+
     const input: ExtractInput = {
       signalId: signal.id,
       source: signal.source,
@@ -111,6 +126,7 @@ export class SignalExtractProcessor extends WorkerHost {
       title: signal.payload.title,
       body: signal.payload.body,
       occurredAt: signal.payload.occurredAt,
+      explicitCapture: isExplicit,
     };
 
     let extraction;
@@ -125,16 +141,23 @@ export class SignalExtractProcessor extends WorkerHost {
     }
 
     if (extraction.noTask || extraction.tasks.length === 0) {
-      await this.db
-        .update(signals)
-        .set({ status: 'no_task', processedAt: new Date() })
-        .where(eq(signals.id, signalId));
-      this.logger.log(`Signal ${signalId}: no task (${extraction.noTaskReason ?? 'unspecified'})`);
-      return;
+      if (!isExplicit) {
+        await this.db
+          .update(signals)
+          .set({ status: 'no_task', processedAt: new Date() })
+          .where(eq(signals.id, signalId));
+        this.logger.log(`Signal ${signalId}: no task (${extraction.noTaskReason ?? 'unspecified'})`);
+        return;
+      }
+      // Explicit partner capture (@tctm / 🎯): the partner decided it IS a task, so never drop it.
+      // The prompt override makes this rare; this is the last-resort safety net.
+      this.logger.warn(
+        `Signal ${signalId}: explicit capture returned noTask (${extraction.noTaskReason ?? 'unspecified'}) — synthesizing fallback task`,
+      );
+      extraction = { noTask: false, tasks: [this.fallbackTaskFromSignal(signal)] };
     }
 
     // 2. Resolve thresholds for this sub-source
-    const subSourceKey = signal.subSource ?? signal.source;
     const thresholds = await this.loadThresholds(subSourceKey);
 
     // 3. For each extracted task: judge → route → persist
@@ -154,38 +177,49 @@ export class SignalExtractProcessor extends WorkerHost {
     task: ExtractedTask,
     thresholds: SourceThresholds,
   ): Promise<void> {
-    // Skip-below check: signals too low to even bother judging
-    if (
-      task.signals.explicitness < thresholds.skipBelow.explicitness ||
-      task.signals.actionability < thresholds.skipBelow.actionability
-    ) {
-      this.logger.log(`Signal ${signalId}: task "${task.title}" below skip threshold, dropping`);
-      return;
-    }
+    const isExplicit = EXPLICIT_SLACK_SUBSOURCES.has(subSourceKey);
 
-    // Multi-axis auto-create check
-    const meetsAutoCreate =
-      task.signals.explicitness >= thresholds.autoCreate.explicitness &&
-      task.signals.actionability >= thresholds.autoCreate.actionability &&
-      task.signals.addressedToUser >= thresholds.autoCreate.addressedToUser &&
-      task.overallConfidence >= thresholds.autoCreate.overallConfidence &&
-      task.ambiguityFlags.length === 0;
-
-    // Judge pass — adversarial QC
-    const judgeVerdict = await this.judge.judge(task, signalId);
-
-    // Final routing decision
     let finalBucket: 'inbox' | 'review' = 'inbox';
     let dismissed = false;
     let autoCreated = false;
+    let judgeVerdict;
 
-    if (judgeVerdict.verdict === 'DISMISS') {
-      dismissed = true;
-    } else if (judgeVerdict.verdict === 'REVIEW' || !meetsAutoCreate) {
-      finalBucket = 'review';
-    } else {
+    if (isExplicit) {
+      // The partner explicitly captured this (@tctm / 🎯). No skip-below gate, no judge —
+      // their gesture is the QC. Straight to the inbox.
+      judgeVerdict = { verdict: 'KEEP' as const, reason: 'Explicit partner capture (judge bypassed)' };
       finalBucket = 'inbox';
       autoCreated = true;
+    } else {
+      // Skip-below check: signals too low to even bother judging
+      if (
+        task.signals.explicitness < thresholds.skipBelow.explicitness ||
+        task.signals.actionability < thresholds.skipBelow.actionability
+      ) {
+        this.logger.log(`Signal ${signalId}: task "${task.title}" below skip threshold, dropping`);
+        return;
+      }
+
+      // Multi-axis auto-create check
+      const meetsAutoCreate =
+        task.signals.explicitness >= thresholds.autoCreate.explicitness &&
+        task.signals.actionability >= thresholds.autoCreate.actionability &&
+        task.signals.addressedToUser >= thresholds.autoCreate.addressedToUser &&
+        task.overallConfidence >= thresholds.autoCreate.overallConfidence &&
+        task.ambiguityFlags.length === 0;
+
+      // Judge pass — adversarial QC
+      judgeVerdict = await this.judge.judge(task, signalId);
+
+      // Final routing decision
+      if (judgeVerdict.verdict === 'DISMISS') {
+        dismissed = true;
+      } else if (judgeVerdict.verdict === 'REVIEW' || !meetsAutoCreate) {
+        finalBucket = 'review';
+      } else {
+        finalBucket = 'inbox';
+        autoCreated = true;
+      }
     }
 
     // Compute dedup hash
@@ -205,6 +239,13 @@ export class SignalExtractProcessor extends WorkerHost {
       dedupHash,
     });
 
+    // Always log the outcome — a successful capture is otherwise silent, which reads as "nothing happened".
+    if (taskId) {
+      this.logger.log(
+        `Signal ${signalId}: task "${task.title}" → ${dismissed ? 'dismissed' : finalBucket}${autoCreated ? ' (auto)' : ''} [${taskId}]`,
+      );
+    }
+
     // Push notification for new tasks (not deduped, not dismissed)
     if (taskId && !dismissed && finalBucket === 'inbox') {
       this.notifications.sendPush({
@@ -219,6 +260,24 @@ export class SignalExtractProcessor extends WorkerHost {
         url: `/review`,
       }).catch(err => this.logger.error(`Push failed: ${err.message}`));
     }
+  }
+
+  /**
+   * Minimal task synthesized when an EXPLICIT capture (@tctm / 🎯) extracts nothing — so the
+   * partner's deliberate capture is never silently dropped. The partner can refine it in the UI.
+   */
+  private fallbackTaskFromSignal(signal: typeof signals.$inferSelect): ExtractedTask {
+    const body = signal.payload.body ?? '';
+    return {
+      title: (signal.payload.title || 'Captured from Slack').slice(0, 180),
+      description: body.slice(0, 500),
+      type: 'do',
+      entityRefs: [],
+      sourceQuote: (body || signal.payload.title || 'explicit capture').slice(0, 1000),
+      signals: { explicitness: 1, actionability: 1, addressedToUser: 1, entityMatchConfidence: 0, temporalClarity: 0 },
+      overallConfidence: 1,
+      ambiguityFlags: [],
+    };
   }
 
   private async loadThresholds(subSourceKey: string): Promise<SourceThresholds> {
