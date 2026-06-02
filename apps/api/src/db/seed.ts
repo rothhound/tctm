@@ -5,6 +5,7 @@ import { and, eq } from 'drizzle-orm';
 import { sourceConfig, promptVersions } from './schema';
 import { EXTRACTION_SYSTEM_PROMPT, JUDGE_SYSTEM_PROMPT } from '../extraction/prompts';
 import { SNOOZE_PROMPT, RESOLVE_PROMPT } from '../extraction/prompt-seeds';
+import { planPromptSeed } from './prompt-seed-plan';
 
 const DEFAULT_CONFIGS = [
   {
@@ -35,6 +36,17 @@ const DEFAULT_CONFIGS = [
     filters: {},
   },
   {
+    // @tctm mention — explicit partner capture; thresholds are zero (judge bypassed downstream).
+    source: 'slack_capture',
+    enabled: true,
+    thresholds: {
+      autoCreate: { explicitness: 0, actionability: 0, addressedToUser: 0, overallConfidence: 0 },
+      skipBelow: { explicitness: 0, actionability: 0 },
+    },
+    filters: {},
+  },
+  {
+    // 🎯 reaction — explicit partner capture; thresholds are zero (judge bypassed downstream).
     source: 'slack_reaction',
     enabled: true,
     thresholds: {
@@ -100,29 +112,44 @@ async function run() {
   // Seed prompt versions (v1 — from hardcoded prompts)
   console.log('Seeding prompt_versions...');
   const promptSeeds = [
-    { purpose: 'extract' as const, content: EXTRACTION_SYSTEM_PROMPT({ partnerName: '{{PARTNER_NAME}}', partnerRole: '{{PARTNER_ROLE}}', entityGlossaryXml: '{{ENTITY_GLOSSARY}}' }) },
+    { purpose: 'extract' as const, content: EXTRACTION_SYSTEM_PROMPT({ partnerName: '{{PARTNER_NAME}}', partnerRole: '{{PARTNER_ROLE}}', partnerAliases: '{{PARTNER_ALIASES}}', entityGlossaryXml: '{{ENTITY_GLOSSARY}}' }) },
     { purpose: 'judge' as const, content: JUDGE_SYSTEM_PROMPT },
     { purpose: 'snooze' as const, content: SNOOZE_PROMPT },
     { purpose: 'resolve' as const, content: RESOLVE_PROMPT },
   ];
 
   for (const seed of promptSeeds) {
-    // Only insert if no version exists for this purpose
-    const existing = await db
+    const versions = await db
       .select()
       .from(promptVersions)
-      .where(eq(promptVersions.purpose, seed.purpose))
-      .limit(1);
+      .where(eq(promptVersions.purpose, seed.purpose));
 
-    if (existing.length === 0) {
-      await db.insert(promptVersions).values({
-        purpose: seed.purpose,
-        version: 1,
-        content: seed.content,
-        active: true,
-        metadata: { createdBy: 'seed', reason: 'Initial V1 prompt' },
-      });
+    const plan = planPromptSeed(versions, seed.content);
+
+    if (plan.action === 'skip') {
+      if (plan.reason === 'tuned') {
+        const active = versions.find((v) => v.active);
+        console.log(`  ${seed.purpose}: active v${active?.version} is tuned — not overwriting`);
+      }
+      continue;
     }
+
+    // Republish drops the previously-active flag first; insert (v1) has nothing to deactivate.
+    if (plan.action === 'republish') {
+      await db.update(promptVersions).set({ active: false }).where(eq(promptVersions.purpose, seed.purpose));
+    }
+
+    await db.insert(promptVersions).values({
+      purpose: seed.purpose,
+      version: plan.version,
+      content: seed.content,
+      active: true,
+      metadata: {
+        createdBy: 'seed',
+        reason: plan.action === 'insert' ? 'Initial V1 prompt' : 'Republished from code template',
+      },
+    });
+    console.log(`  ${seed.purpose}: ${plan.action === 'insert' ? 'seeded v1' : `republished as v${plan.version}`}`);
   }
   console.log('Seeded prompt versions.');
 

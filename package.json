@@ -7,6 +7,7 @@
     "packages/*"
   ],
   "scripts": {
+    "predev": "lsof -tnP -iTCP:3100,4100 -sTCP:LISTEN | xargs kill 2>/dev/null; sleep 1; echo 'predev: ports 3100/4100 ready'",
     "dev": "npm run dev:web & npm run dev:api",
     "dev:api": "npm run dev -w @tctm/api",
     "dev:web": "npm run dev -w @tctm/web",
@@ -22,6 +23,7 @@
     "db:migrate": "npm run db:migrate -w @tctm/api",
     "db:seed": "npm run db:seed -w @tctm/api",
     "db:seed:tasks": "npm run db:seed:tasks -w @tctm/api",
+    "db:clean": "npm run db:clean -w @tctm/api",
     "db:setup": "npm run db:drop -w @tctm/api && npm run db:create -w @tctm/api && npm run db:migrate -w @tctm/api && npm run db:seed -w @tctm/api && npm run db:seed:tasks -w @tctm/api",
     "db:generate": "npm run db:generate -w @tctm/api",
     "db:studio": "npm run db:studio -w @tctm/api"
