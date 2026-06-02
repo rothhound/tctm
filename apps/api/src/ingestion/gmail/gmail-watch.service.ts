@@ -2,10 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { Inject } from '@nestjs/common';
-import { google } from 'googleapis';
 import { eq } from 'drizzle-orm';
 import { DB, DbType } from '../../db/db.module';
 import { gmailWatchState } from '../../db/schema';
+import { resolveGmailClient } from './gmail-auth';
 
 /**
  * Renews the Gmail push notification watch daily.
@@ -22,19 +22,26 @@ export class GmailWatchService {
 
   @Cron(CronExpression.EVERY_DAY_AT_3AM)
   async renewWatch(): Promise<void> {
-    const clientId = this.config.get<string>('GOOGLE_CLIENT_ID');
-    const clientSecret = this.config.get<string>('GOOGLE_CLIENT_SECRET');
     const topic = this.config.get<string>('GMAIL_PUBSUB_TOPIC');
+    if (!topic) {
+      this.logger.warn('GMAIL_PUBSUB_TOPIC not set — skipping watch renewal');
+      return;
+    }
 
-    if (!clientId || !clientSecret || !topic) {
-      this.logger.warn('Gmail not configured — skipping watch renewal');
+    let resolved;
+    try {
+      resolved = resolveGmailClient(this.config);
+    } catch (err: any) {
+      this.logger.error(`Gmail auth misconfigured — skipping watch renewal: ${err.message}`);
+      return;
+    }
+    if (!resolved) {
+      this.logger.warn('Gmail auth not configured (delegation or refresh token) — skipping watch renewal');
       return;
     }
 
     try {
-      const oauth2 = new google.auth.OAuth2(clientId, clientSecret);
-      // TODO: Load refresh token from oauthTokens table
-      const gmail = google.gmail({ version: 'v1', auth: oauth2 });
+      const gmail = resolved.client;
 
       const response = await gmail.users.watch({
         userId: 'me',

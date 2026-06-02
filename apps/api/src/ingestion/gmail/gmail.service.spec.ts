@@ -125,6 +125,7 @@ describe('GmailService', () => {
                 GMAIL_USER_EMAIL: 'user@example.com',
                 GOOGLE_CLIENT_ID: 'client-id',
                 GOOGLE_CLIENT_SECRET: 'client-secret',
+                GMAIL_REFRESH_TOKEN: 'refresh-token',
               };
               return map[key] ?? fallback ?? '';
             }),
@@ -1062,11 +1063,26 @@ describe('GmailService', () => {
       expect(result).toBeNull();
     });
 
+    it('returns null when GMAIL_REFRESH_TOKEN is missing', async () => {
+      (service as any).gmail = null;
+      const configGet = jest.fn((key: string) => {
+        if (key === 'GOOGLE_CLIENT_ID') return 'client-id';
+        if (key === 'GOOGLE_CLIENT_SECRET') return 'client-secret';
+        if (key === 'GMAIL_REFRESH_TOKEN') return undefined;
+        return '';
+      });
+      (service as any).config = { get: configGet };
+
+      const result = await (service as any).getGmailClient();
+      expect(result).toBeNull();
+    });
+
     it('creates and caches Gmail client when credentials exist', async () => {
       (service as any).gmail = null;
       const configGet = jest.fn((key: string) => {
         if (key === 'GOOGLE_CLIENT_ID') return 'real-client-id';
         if (key === 'GOOGLE_CLIENT_SECRET') return 'real-client-secret';
+        if (key === 'GMAIL_REFRESH_TOKEN') return 'real-refresh-token';
         return '';
       });
       (service as any).config = { get: configGet };

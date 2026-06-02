@@ -2,13 +2,14 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { google, gmail_v1 } from 'googleapis';
+import { gmail_v1 } from 'googleapis';
 import { eq } from 'drizzle-orm';
 import { DB, DbType } from '../../db/db.module';
 import { gmailWatchState, signals } from '../../db/schema';
 import { QUEUES } from '../../shared/queues.module';
 import { isAutoSender } from './auto-senders';
 import { EntitiesService } from '../../entities/entities.service';
+import { resolveGmailClient, ResolvedGmail } from './gmail-auth';
 
 type SignalInsert = typeof signals.$inferInsert;
 
@@ -219,17 +220,22 @@ export class GmailService {
   private async getGmailClient(): Promise<gmail_v1.Gmail | null> {
     if (this.gmail) return this.gmail;
 
-    const clientId = this.config.get<string>('GOOGLE_CLIENT_ID');
-    const clientSecret = this.config.get<string>('GOOGLE_CLIENT_SECRET');
-    if (!clientId || !clientSecret) {
-      this.logger.warn('Google OAuth not configured — Gmail ingestion disabled');
+    let resolved: ResolvedGmail | null;
+    try {
+      resolved = resolveGmailClient(this.config);
+    } catch (err: any) {
+      this.logger.error(`Gmail auth misconfigured: ${err.message}`);
+      return null;
+    }
+    if (!resolved) {
+      this.logger.warn(
+        'Gmail not configured — set GMAIL_SA_KEY + GMAIL_IMPERSONATE_SUBJECT (domain-wide delegation) or GOOGLE_CLIENT_ID/SECRET + GMAIL_REFRESH_TOKEN — ingestion disabled',
+      );
       return null;
     }
 
-    // In production, load refresh token from secrets/DB
-    const oauth2 = new google.auth.OAuth2(clientId, clientSecret);
-    // TODO: Load refresh token from oauthTokens table
-    this.gmail = google.gmail({ version: 'v1', auth: oauth2 });
+    this.gmail = resolved.client;
+    this.logger.log(`Gmail client ready (auth: ${resolved.mode}${resolved.subject ? ` as ${resolved.subject}` : ''})`);
     return this.gmail;
   }
 }
