@@ -3,11 +3,10 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
     "isolatedModules": true,
     "composite": true,
-    "noEmit": false,
-    "declaration": true,
+    "outDir": "./node_modules/.tmp/tsc-node",
     "strict": true
   },
   "include": ["vite.config.ts", "vitest.config.ts"]
