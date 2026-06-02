@@ -110,6 +110,7 @@ export class ExtractorService {
 
     const completion = await this.llm.complete({
       purpose: 'extract',
+      label: `${input.source}/${input.subSource ?? '—'} ${input.signalId}`,
       system: systemPrompt,
       user: userContent,
       maxTokens: 2000,

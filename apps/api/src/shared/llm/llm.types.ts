@@ -8,6 +8,8 @@ export interface LlmRequest {
   system: string;
   user: string;
   maxTokens: number;
+  /** Short context tag for the console log line (e.g. the signal id or task title). */
+  label?: string;
   /** Optional sampling temperature. Omitted → the provider/model default. */
   temperature?: number;
   /**

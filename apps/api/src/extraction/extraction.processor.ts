@@ -115,6 +115,7 @@ export class SignalExtractProcessor extends WorkerHost {
     // 1. Extract
     const subSourceKey = signal.subSource ?? signal.source;
     const isExplicit = EXPLICIT_SLACK_SUBSOURCES.has(subSourceKey);
+    this.logger.log(`processing ${signal.id} (${signal.source}/${signal.subSource ?? '—'})${isExplicit ? ' [explicit capture]' : ''}`);
 
     const input: ExtractInput = {
       signalId: signal.id,

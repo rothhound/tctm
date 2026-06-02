@@ -42,7 +42,18 @@ export class LlmService {
     return this.provider.modelFor(purpose);
   }
 
-  complete(req: LlmRequest): Promise<LlmResponse> {
-    return this.provider.complete(req);
+  async complete(req: LlmRequest): Promise<LlmResponse> {
+    const startedAt = Date.now();
+    const res = await this.provider.complete(req);
+    const ms = Date.now() - startedAt;
+
+    // One readable line per AI call: what ran, on which model, how big, how long, how much.
+    this.logger.log(
+      `${req.purpose}${req.label ? ` [${req.label}]` : ''} → ${res.provider}/${res.model} · ` +
+        `${res.usage.inputTokens}→${res.usage.outputTokens} tok` +
+        `${res.usage.cacheReadTokens ? ` (cache ${res.usage.cacheReadTokens})` : ''} · ` +
+        `${(ms / 1000).toFixed(1)}s · $${res.costUsd.toFixed(4)}`,
+    );
+    return res;
   }
 }

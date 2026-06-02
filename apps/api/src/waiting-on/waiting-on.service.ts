@@ -66,6 +66,7 @@ export class WaitingOnService {
     try {
       const completion = await this.llm.complete({
         purpose: 'classify',
+        label: 'waiting-on',
         maxTokens: 100,
         system:
           'You determine if a new message resolves a waiting-on task. Respond with ONLY valid JSON: {"resolves": true/false, "reason": "short explanation"}',

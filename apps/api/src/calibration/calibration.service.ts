@@ -73,6 +73,7 @@ export class CalibrationService {
 
     const completion = await this.llm.complete({
       purpose: 'extract',
+      label: 'calibration',
       maxTokens: 2000,
       system: `You are a prompt calibration analyst. You review extraction feedback (accept/edit/dismiss actions from a VC partner) and identify patterns in false positives.
 

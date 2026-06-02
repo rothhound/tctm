@@ -60,6 +60,7 @@ export class JudgeService {
 
     const completion = await this.llm.complete({
       purpose: 'judge',
+      label: task.title.slice(0, 40),
       system: promptVersion.content,
       user: userContent,
       maxTokens: 300,
@@ -78,6 +79,8 @@ export class JudgeService {
       this.logger.error(`Judge parse failed: ${(err as Error).message}, raw: ${text.slice(0, 200)}`);
       verdict = { verdict: 'REVIEW', reason: 'Judge output invalid, defaulting to review' };
     }
+
+    this.logger.log(`verdict ${verdict.verdict} — ${verdict.reason}`);
 
     await this.db.insert(llmAuditLog).values({
       signalId,

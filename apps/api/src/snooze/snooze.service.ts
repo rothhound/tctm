@@ -19,6 +19,7 @@ export class SnoozeService {
     try {
       const completion = await this.llm.complete({
         purpose: 'classify',
+        label: 'snooze',
         maxTokens: 200,
         system: `You parse natural language time expressions into ISO 8601 dates. The current date/time is ${now.toISOString()}. Respond with ONLY valid JSON: {"date": "ISO8601 string or null", "confidence": 0-1, "interpretation": "what you understood"}`,
         user: text,
