@@ -30,13 +30,16 @@ export class GmailController {
     @Headers('authorization') authHeader: string | undefined,
     @Body() body: { message?: { data?: string; messageId?: string }; subscription?: string },
   ) {
-    // Verify JWT from Pub/Sub
-    if (authHeader) {
-      const token = authHeader.replace('Bearer ', '');
-      await this.verifyPubSubJwt(token);
+    // Pub/Sub must authenticate with an OIDC JWT (enable OIDC auth on the push subscription,
+    // audience = GOOGLE_CLIENT_ID). Fail closed: a missing or invalid token is rejected.
+    if (!authHeader) {
+      this.logger.warn('Gmail push REJECTED — no Authorization header (enable OIDC auth on the push subscription)');
+      throw new HttpException('Unauthenticated Pub/Sub push', HttpStatus.UNAUTHORIZED);
     }
+    await this.verifyPubSubJwt(authHeader.replace('Bearer ', ''));
 
     if (!body.message?.data) {
+      this.logger.log('Gmail push received (no message data — likely a subscription verification ping)');
       return { ok: true };
     }
 
@@ -54,6 +57,8 @@ export class GmailController {
       return { ok: true };
     }
 
+    this.logger.log(`Gmail push received — historyId=${payload.historyId} (${payload.emailAddress ?? 'mailbox'})`);
+
     // Process asynchronously — Pub/Sub expects fast ack
     setImmediate(() => {
       this.gmailService
@@ -65,12 +70,16 @@ export class GmailController {
   }
 
   private async verifyPubSubJwt(token: string): Promise<void> {
+    const audience = this.config.get<string>('GOOGLE_CLIENT_ID');
+    if (!audience) {
+      // No audience to check against → can't verify → reject rather than accept blindly.
+      this.logger.error('GOOGLE_CLIENT_ID not set — cannot verify Gmail push audience; rejecting');
+      throw new HttpException('Push verification not configured', HttpStatus.UNAUTHORIZED);
+    }
     try {
-      await this.oauth2Client.verifyIdToken({
-        idToken: token,
-        audience: this.config.get<string>('GOOGLE_CLIENT_ID'),
-      });
+      await this.oauth2Client.verifyIdToken({ idToken: token, audience });
     } catch (err) {
+      this.logger.warn('Gmail push JWT verification failed — check the subscription OIDC audience equals GOOGLE_CLIENT_ID');
       throw new HttpException('Invalid Pub/Sub JWT', HttpStatus.UNAUTHORIZED);
     }
   }
