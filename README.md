@@ -42,7 +42,7 @@ Requires Postgres and Redis running locally.
 npm install
 cp apps/api/.env.example apps/api/.env  # fill in secrets
 npm run db:setup                        # create DB + migrate + seed (first time)
-npm run dev                             # Web :3000, API :4000
+npm run dev                             # Web :3100, API :4100
 ```
 
 ## Testing
