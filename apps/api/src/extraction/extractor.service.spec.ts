@@ -3,14 +3,25 @@ import { ConfigService } from '@nestjs/config';
 import { ExtractorService } from './extractor.service';
 import { EntitiesService } from '../entities/entities.service';
 import { PromptsService } from '../prompts/prompts.service';
-import { ANTHROPIC } from '../shared/anthropic.module';
+import { LlmService } from '../shared/llm/llm.service';
 import { DB } from '../db/db.module';
 const validOutput = require('../../test/fixtures/extraction/valid-output.json');
 const noTaskOutput = require('../../test/fixtures/extraction/no-task.json');
 
+/** Build an LlmService.complete() result wrapping the given model text. */
+function completion(text: string) {
+  return {
+    text,
+    provider: 'anthropic' as const,
+    model: 'claude-opus-4-7',
+    usage: { inputTokens: 500, outputTokens: 200, cacheReadTokens: 4000, cacheCreationTokens: 0 },
+    costUsd: 0.01,
+  };
+}
+
 describe('ExtractorService', () => {
   let service: ExtractorService;
-  let mockAnthropicCreate: jest.Mock;
+  let mockComplete: jest.Mock;
   let mockDbInsert: jest.Mock;
 
   const mockInput = {
@@ -25,15 +36,15 @@ describe('ExtractorService', () => {
   };
 
   beforeEach(async () => {
-    mockAnthropicCreate = jest.fn();
+    mockComplete = jest.fn();
     mockDbInsert = jest.fn().mockReturnValue({ values: jest.fn().mockResolvedValue([]) });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ExtractorService,
         {
-          provide: ANTHROPIC,
-          useValue: { messages: { create: mockAnthropicCreate } },
+          provide: LlmService,
+          useValue: { complete: mockComplete, modelFor: jest.fn().mockReturnValue('claude-opus-4-7') },
         },
         {
           provide: DB,
@@ -46,6 +57,10 @@ describe('ExtractorService', () => {
               if (key === 'PARTNER_NAME') return 'Jane Doe';
               if (key === 'PARTNER_ROLE') return 'Managing Partner';
               throw new Error(`Unknown key: ${key}`);
+            },
+            get: (key: string, def?: any) => {
+              if (key === 'PARTNER_ALIASES') return 'JD, Janie';
+              return def;
             },
           },
         },
@@ -60,7 +75,9 @@ describe('ExtractorService', () => {
           useValue: {
             getActivePrompt: jest.fn().mockResolvedValue({
               id: 'pv-001', purpose: 'extract', version: 1, active: true,
-              content: 'You are a task extraction assistant for {{PARTNER_NAME}}, a {{PARTNER_ROLE}}.\n{{ENTITY_GLOSSARY}}',
+              // {{PARTNER_NAME}} appears twice on purpose — verifies the global (not first-only) replace.
+              content:
+                'Assistant for {{PARTNER_NAME}} ({{PARTNER_ROLE}}). You = {{PARTNER_NAME}}; aliases: {{PARTNER_ALIASES}}.\n{{ENTITY_GLOSSARY}}',
             }),
           },
         },
@@ -71,15 +88,7 @@ describe('ExtractorService', () => {
   });
 
   it('parses valid extraction output', async () => {
-    mockAnthropicCreate.mockResolvedValue({
-      content: [{ type: 'text', text: JSON.stringify(validOutput) }],
-      usage: {
-        input_tokens: 500,
-        output_tokens: 200,
-        cache_read_input_tokens: 4000,
-        cache_creation_input_tokens: 0,
-      },
-    });
+    mockComplete.mockResolvedValue(completion(JSON.stringify(validOutput)));
 
     const result = await service.extract(mockInput);
 
@@ -90,10 +99,7 @@ describe('ExtractorService', () => {
   });
 
   it('handles noTask response', async () => {
-    mockAnthropicCreate.mockResolvedValue({
-      content: [{ type: 'text', text: JSON.stringify(noTaskOutput) }],
-      usage: { input_tokens: 200, output_tokens: 50, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
-    });
+    mockComplete.mockResolvedValue(completion(JSON.stringify(noTaskOutput)));
 
     const result = await service.extract(mockInput);
 
@@ -102,34 +108,50 @@ describe('ExtractorService', () => {
   });
 
   it('throws on invalid JSON output', async () => {
-    mockAnthropicCreate.mockResolvedValue({
-      content: [{ type: 'text', text: 'not valid json at all' }],
-      usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
-    });
+    mockComplete.mockResolvedValue(completion('not valid json at all'));
 
     await expect(service.extract(mockInput)).rejects.toThrow('Invalid extractor output');
   });
 
   it('writes audit log on every call', async () => {
-    mockAnthropicCreate.mockResolvedValue({
-      content: [{ type: 'text', text: JSON.stringify(validOutput) }],
-      usage: { input_tokens: 500, output_tokens: 200, cache_read_input_tokens: 4000, cache_creation_input_tokens: 0 },
-    });
+    mockComplete.mockResolvedValue(completion(JSON.stringify(validOutput)));
 
     await service.extract(mockInput);
 
     expect(mockDbInsert).toHaveBeenCalled();
   });
 
-  it('uses prompt caching via cache_control in system message', async () => {
-    mockAnthropicCreate.mockResolvedValue({
-      content: [{ type: 'text', text: JSON.stringify(validOutput) }],
-      usage: { input_tokens: 500, output_tokens: 200, cache_read_input_tokens: 4000, cache_creation_input_tokens: 0 },
-    });
+  it('requests prompt caching for the (large, stable) extraction system prompt', async () => {
+    mockComplete.mockResolvedValue(completion(JSON.stringify(validOutput)));
 
     await service.extract(mockInput);
 
-    const callArgs = mockAnthropicCreate.mock.calls[0][0];
-    expect(callArgs.system[0].cache_control).toEqual({ type: 'ephemeral' });
+    const callArgs = mockComplete.mock.calls[0][0];
+    expect(callArgs.purpose).toBe('extract');
+    expect(callArgs.cacheSystem).toBe(true);
+  });
+
+  it('replaces every placeholder (global) and injects partner name + aliases', async () => {
+    mockComplete.mockResolvedValue(completion(JSON.stringify(validOutput)));
+
+    await service.extract(mockInput);
+
+    const system = mockComplete.mock.calls[0][0].system as string;
+    expect(system).toContain('Jane Doe'); // name injected
+    expect(system).toContain('JD, Janie'); // aliases injected
+    expect(system).not.toContain('{{'); // no leftover placeholders (proves global replace, not first-only)
+  });
+
+  it('injects an explicit-capture override (forbidding noTask) only when explicitCapture is set', async () => {
+    mockComplete.mockResolvedValue(completion(JSON.stringify(validOutput)));
+
+    await service.extract({ ...mockInput, explicitCapture: true });
+    const explicitSystem = mockComplete.mock.calls[0][0].system as string;
+    expect(explicitSystem).toContain('EXPLICIT CAPTURE');
+    expect(explicitSystem).toContain('Jane Doe'); // partner name substituted into the directive
+
+    mockComplete.mockClear();
+    await service.extract(mockInput);
+    expect(mockComplete.mock.calls[0][0].system).not.toContain('EXPLICIT CAPTURE');
   });
 });

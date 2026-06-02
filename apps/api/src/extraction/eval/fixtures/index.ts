@@ -22,11 +22,33 @@ export interface EvalFixture {
     titles?: string[];
     types?: string[];
     judgeVerdict?: 'KEEP' | 'REVIEW' | 'DISMISS';
+    // Entity-ref mentions that must NOT appear on any extracted task. Used to assert the partner
+    // (by name/alias) is rendered as "you", never as a third-party entity. Matched case-insensitively.
+    forbiddenEntityMentions?: string[];
   };
 }
 
 export const evalFixtures: EvalFixture[] = [
   // ── SHOULD EXTRACT (positive cases) ──────────────────────
+  {
+    id: 'slack-capture-named-self',
+    description: 'Partner addressed by alias — extract as YOUR task, never an entityRef for yourself',
+    signal: {
+      source: 'slack', subSource: 'slack_capture',
+      title: '@tctm capture in #deals',
+      body: 'Flagged message (capture the task this indicates):\nGianfranco Montoya: GF could you run a Salesforce report for CEOs and founders in NY and SF?',
+      author: { name: 'Gianfranco Montoya', email: 'gms@example.com' },
+      occurredAt: '2026-06-01T23:00:00Z',
+    },
+    expected: {
+      shouldExtract: true,
+      taskCount: 1,
+      types: ['do'],
+      titles: ['Run Salesforce report: CEOs and founders in NY and SF'],
+      forbiddenEntityMentions: ['GF', 'Gianfranco', 'Gianfranco Montoya'],
+      judgeVerdict: 'KEEP',
+    },
+  },
   {
     id: 'slack-dm-cap-table',
     description: 'Direct ask for cap table with deadline',

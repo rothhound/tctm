@@ -1,9 +1,8 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import Anthropic from '@anthropic-ai/sdk';
 import { createHash } from 'crypto';
 import { z } from 'zod';
-import { ANTHROPIC, MODELS } from '../shared/anthropic.module';
+import { LlmService } from '../shared/llm/llm.service';
 import { DB, DbType } from '../db/db.module';
 import { llmAuditLog, signals } from '../db/schema';
 import { eq } from 'drizzle-orm';
@@ -54,6 +53,8 @@ export interface ExtractInput {
   body: string;
   occurredAt: string;
   threadContextSummary?: string;
+  /** Partner explicitly flagged this for capture (Slack @tctm / 🎯) — must always yield a task. */
+  explicitCapture?: boolean;
 }
 
 @Injectable()
@@ -61,7 +62,7 @@ export class ExtractorService {
   private readonly logger = new Logger(ExtractorService.name);
 
   constructor(
-    @Inject(ANTHROPIC) private readonly anthropic: Anthropic,
+    private readonly llm: LlmService,
     @Inject(DB) private readonly db: DbType,
     private readonly config: ConfigService,
     private readonly entities: EntitiesService,
@@ -73,14 +74,28 @@ export class ExtractorService {
 
     const partnerName = this.config.getOrThrow<string>('PARTNER_NAME');
     const partnerRole = this.config.getOrThrow<string>('PARTNER_ROLE');
+    // Same env as the Slack matchers — lets the prompt map the partner's aliases ("GF", "Gian") to "you".
+    const aliases = (this.config.get<string>('PARTNER_ALIASES', '') ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const partnerAliasesText = aliases.length ? aliases.join(', ') : '(none)';
     const entityGlossaryXml = await this.entities.renderGlossaryXml();
 
-    // Load prompt from DB (cached 5min)
+    // Load prompt from DB (cached 5min). Global replace — each placeholder appears multiple times.
     const promptVersion = await this.promptsService.getActivePrompt('extract');
-    const systemPrompt = promptVersion.content
-      .replace('{{PARTNER_NAME}}', partnerName)
-      .replace('{{PARTNER_ROLE}}', partnerRole)
-      .replace('{{ENTITY_GLOSSARY}}', entityGlossaryXml);
+    let systemPrompt = promptVersion.content
+      .replace(/\{\{PARTNER_NAME\}\}/g, partnerName)
+      .replace(/\{\{PARTNER_ROLE\}\}/g, partnerRole)
+      .replace(/\{\{PARTNER_ALIASES\}\}/g, partnerAliasesText)
+      .replace(/\{\{ENTITY_GLOSSARY\}\}/g, entityGlossaryXml);
+
+    // Explicit capture override: the partner deliberately flagged this message (@tctm / 🎯), so the
+    // normal "is this a task FOR the partner?" gate doesn't apply — they've already decided it is.
+    // Without this, delegations ("X, please do Y") inconsistently return noTask.
+    if (input.explicitCapture) {
+      systemPrompt += `\n\n## EXPLICIT CAPTURE OVERRIDE\n${partnerName} explicitly flagged this message for capture. They have decided it is worth tracking, so you MUST return exactly one task with "noTask": false. If ${partnerName} is delegating to or instructing someone else, capture it as an oversight/follow-up task owned by ${partnerName} (e.g., "Follow up: <person> to <do X>"). Never return noTask for an explicit capture.`;
+    }
 
     const userContent = JSON.stringify({
       source: input.source,
@@ -93,25 +108,18 @@ export class ExtractorService {
       threadContextSummary: input.threadContextSummary,
     }, null, 2);
 
-    const response = await this.anthropic.messages.create({
-      model: MODELS.EXTRACTOR,
-      max_tokens: 2000,
+    const completion = await this.llm.complete({
+      purpose: 'extract',
+      system: systemPrompt,
+      user: userContent,
+      maxTokens: 2000,
       // Prompt caching: system prompt is large and stable (changes ~daily when entities update).
-      // Cache write happens once per day; subsequent calls are ~90% cheaper.
-      system: [
-        {
-          type: 'text',
-          text: systemPrompt,
-          cache_control: { type: 'ephemeral' },
-        },
-      ],
-      messages: [{ role: 'user', content: userContent }],
+      // Honored by Anthropic (cache write once/day, then ~90% cheaper); OpenAI caches automatically.
+      cacheSystem: true,
     });
 
     const latencyMs = Date.now() - startedAt;
-    const text = response.content.find(b => b.type === 'text')?.type === 'text'
-      ? (response.content.find(b => b.type === 'text') as Anthropic.TextBlock).text
-      : '';
+    const text = completion.text;
 
     const cleaned = text.replace(/```json|```/g, '').trim();
     let result: ExtractionResult;
@@ -129,38 +137,18 @@ export class ExtractorService {
       signalId: input.signalId,
       purpose: 'extract',
       promptVersionId: promptVersion.id,
-      model: MODELS.EXTRACTOR,
-      inputTokens: response.usage.input_tokens,
-      outputTokens: response.usage.output_tokens,
-      cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
-      cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+      model: completion.model,
+      inputTokens: completion.usage.inputTokens,
+      outputTokens: completion.usage.outputTokens,
+      cacheReadTokens: completion.usage.cacheReadTokens,
+      cacheCreationTokens: completion.usage.cacheCreationTokens,
       promptHash: createHash('sha256').update(systemPrompt).digest('hex').slice(0, 16),
       inputSnapshot: { user: userContent.slice(0, 5000) },
       outputSnapshot: result,
       latencyMs,
-      costUsd: this.estimateCostUsd(response.usage),
+      costUsd: completion.costUsd,
     });
 
     return result;
-  }
-
-  private estimateCostUsd(usage: Anthropic.Usage): number {
-    // Opus 4.7 pricing — verify against current rates before relying on this number
-    const INPUT_PER_MTOK = 15;
-    const OUTPUT_PER_MTOK = 75;
-    const CACHE_READ_PER_MTOK = 1.5;
-    const CACHE_WRITE_PER_MTOK = 18.75;
-
-    const cacheRead = usage.cache_read_input_tokens ?? 0;
-    const cacheWrite = usage.cache_creation_input_tokens ?? 0;
-    const regularInput = usage.input_tokens - cacheRead;
-
-    return (
-      (regularInput * INPUT_PER_MTOK +
-        cacheRead * CACHE_READ_PER_MTOK +
-        cacheWrite * CACHE_WRITE_PER_MTOK +
-        usage.output_tokens * OUTPUT_PER_MTOK) /
-      1_000_000
-    );
   }
 }

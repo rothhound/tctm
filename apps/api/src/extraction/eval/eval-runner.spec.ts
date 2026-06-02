@@ -83,6 +83,33 @@ describe('Extraction Eval Harness', () => {
     expect(summary.falsePositives).toBeGreaterThan(0);
   });
 
+  it('marks a task incorrect when it creates an entityRef for the partner (should be "you")', async () => {
+    // Extractor that makes the exact mistake we're guarding against: a self-referential entityRef.
+    const selfReferencingExtractor = async (signal: typeof evalFixtures[number]['signal']): Promise<ExtractionResult> => {
+      const fixture = evalFixtures.find(f => f.signal.body === signal.body);
+      if (!fixture?.expected.shouldExtract) return { tasks: [], noTask: true };
+      return {
+        tasks: [{
+          title: fixture.expected.titles?.[0] ?? 'Task',
+          description: '',
+          type: 'do',
+          entityRefs: [{ mention: 'GF' }], // ← treating the partner alias as a third-party entity
+          sourceQuote: signal.body.slice(0, 50),
+          signals: { explicitness: 0.9, actionability: 0.9, addressedToUser: 0.9, entityMatchConfidence: 0.9, temporalClarity: 0.8 },
+          overallConfidence: 0.9,
+          ambiguityFlags: [],
+        }],
+        noTask: false,
+      };
+    };
+
+    const summary = await runEval(selfReferencingExtractor);
+    const named = summary.results.find(r => r.fixtureId === 'slack-capture-named-self');
+
+    expect(named).toBeDefined();
+    expect(named!.correct).toBe(false); // 'GF' is a forbidden self-mention for this fixture
+  });
+
   it('measures false negatives with never-extract extractor', async () => {
     const neverExtract = async (): Promise<ExtractionResult> => ({
       tasks: [],
