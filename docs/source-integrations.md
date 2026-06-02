@@ -2,15 +2,40 @@
 
 Per-source detail. The main spec covers what; this covers how.
 
+## Local development — webhook tunneling
+
+The three webhook sources (Slack, Gmail push, Notion) need a public HTTPS URL that reaches the local API (`localhost:4100`). Use a **Cloudflare named tunnel** for a **fixed** hostname (ngrok-free URLs change on every restart, forcing you to re-paste/re-verify each provider).
+
+- One tunnel, one Published-application route: `tctm-dev.<domain> → http://localhost:4100`.
+- That single hostname serves all three webhook paths — set each once, they never change:
+  - Slack:  `https://tctm-dev.<domain>/api/webhooks/slack/events`
+  - Gmail:  `https://tctm-dev.<domain>/api/webhooks/gmail/push`
+  - Notion: `https://tctm-dev.<domain>/api/webhooks/notion`
+
+Per-environment (local vs prod) delivery differs by provider:
+- **Gmail** — one Pub/Sub topic, **multiple push subscriptions** → fan-out to local *and* prod simultaneously.
+- **Slack** — **one Request URL per app** → use a separate dev Slack app (its own signing secret + bot token), or repoint the URL to the env you're testing.
+- **Notion** — add a webhook subscription per environment (or a separate integration).
+
+(Granola has no webhook — it polls outbound, so no tunnel needed.)
+
 ## Gmail
 
-### OAuth setup (one-time, manual)
+### Auth setup (one-time)
 
-1. In the partner's GCP project, enable Gmail API and Cloud Pub/Sub API
-2. OAuth consent screen: internal app, scopes `gmail.readonly` and `gmail.metadata`
-3. Create OAuth 2.0 Client ID (type: Web application)
-4. Authorized redirect URI: `https://<domain>/auth/google/callback`
-5. Run the bootstrap CLI: `npm run cli -- auth:gmail` — opens browser, partner signs in, refresh token captured and encrypted into Secrets Manager
+Common: enable **Gmail API** + **Cloud Pub/Sub API**, and add scope `gmail.readonly` to the OAuth consent screen. Auth is resolved by `ingestion/gmail/gmail-auth.ts` (`resolveGmailClient`), used by both the ingestion and watch-renewal services. Pick **one** mode:
+
+**(A) Domain-wide delegation — recommended for a shared/functional mailbox** (e.g. `tctm@svangel.com`):
+1. Create a **service account** in GCP and generate a JSON key.
+2. Workspace admin: Admin console → Security → API controls → **Domain-wide delegation** → add the service account's client ID with scope `https://www.googleapis.com/auth/gmail.readonly`.
+3. Set `GMAIL_SA_KEY` = the service-account JSON (raw, or base64 for config vars) and `GMAIL_IMPERSONATE_SUBJECT` = the mailbox to read as.
+- No interactive consent, no refresh token to manage, admin-controlled, survives credential changes. `userId:'me'` resolves to the impersonated mailbox.
+
+**(B) OAuth refresh token — single-user fallback:**
+1. Reuse the `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` web client (same as Sign-In).
+2. Obtain a refresh token (signed in **as the target mailbox**) with `access_type=offline` + `prompt=consent` — e.g. the Google OAuth 2.0 Playground or a small script.
+3. Set `GMAIL_REFRESH_TOKEN`.
+- Simpler, but tied to one account's consent and breaks on password/2FA changes — fine for a personal mailbox, fragile for a shared one.
 
 ### Pub/Sub setup
 
@@ -27,7 +52,7 @@ gcloud pubsub topics add-iam-policy-binding gmail-push \
 # Create push subscription
 gcloud pubsub subscriptions create gmail-push-sub \
   --topic=gmail-push \
-  --push-endpoint=https://<domain>/webhooks/gmail/push \
+  --push-endpoint=https://<domain>/api/webhooks/gmail/push \
   --push-auth-service-account=<service-account>@<project>.iam.gserviceaccount.com \
   --ack-deadline=60 \
   --project=<project>
@@ -181,26 +206,32 @@ This is the highest-leverage filter. 30-40% of inbound email is automated and ne
 
 ### App configuration
 
-In api.slack.com, create app. Required scopes:
+In api.slack.com, create the app. The bot must be **invited as a member** of every channel it should read — channel selection is human, not algorithmic.
+
+Required bot-token scopes:
 
 | Scope | Why |
 |-------|-----|
-| `channels:history` | Read channel messages |
-| `im:history` | Read DMs |
+| `app_mentions:read` | Receive `app_mention` (the `@tctm` capture trigger) |
+| `channels:history` | Read public-channel messages + context windows |
+| `groups:history` | Read private-channel messages + context windows |
+| `channels:read` / `groups:read` | Resolve channel IDs to names |
+| `reactions:read` | Detect the 🎯 capture reaction |
 | `users:read` | Resolve user IDs to names |
 | `users:read.email` | Resolve user IDs to emails (for entity matching) |
-| `reactions:read` | Detect 🎯 reactions |
 
 Event subscriptions:
 
 | Event | Why |
 |-------|-----|
-| `message.im` | Direct messages to partner |
-| `message.channels` | Channel messages (filtered by partner's @ mention later) |
-| `app_mention` | Explicit @mention of the bot |
-| `reaction_added` | 🎯 manual trigger |
+| `app_mention` | `@tctm` explicit capture (partner-only) |
+| `reaction_added` | 🎯 explicit capture (partner-only) |
+| `message.channels` | Passive capture in public channels (anchored on the partner) |
+| `message.groups` | Passive capture in private channels (anchored on the partner) |
 
-Request URL: `https://<domain>/webhooks/slack/events`
+> **`message.im` is intentionally NOT subscribed.** DMs to the bot are out of scope, and a bot token cannot read the partner's own 1:1 DMs (that needs a user token). See the capture model below.
+
+Request URL: `https://<domain>/api/webhooks/slack/events`  (note the `/api` global prefix)
 
 ### Signature verification
 
@@ -230,30 +261,36 @@ if (!timingSafeEqual(Buffer.from(expected), Buffer.from(signature))) {
 
 `timingSafeEqual` matters — string comparison leaks timing information.
 
-### Channel filtering
+### Capture model
 
-By default, the bot subscribes to all channels it's invited to. The partner only invites the bot to channels they actually want monitored. Channel selection is human, not algorithmic.
+`SlackIngestionService.toSignal` routes by event type into **three capture paths** (all require the bot to be a channel member):
 
-`message.channels` events fire for every message in every subscribed channel. We additionally filter in `slackIngestionService.fromMessage`:
+| Path | Event | Who | Routing |
+|------|-------|-----|---------|
+| **@tctm mention** | `app_mention` | **partner only** (`PARTNER_SLACK_USER_ID`) | explicit → `slack_capture` → **bypasses the judge** → inbox |
+| **🎯 reaction** | `reaction_added` (`SLACK_TASK_REACTION`, default `dart`) | **partner only** | explicit → `slack_reaction` → **bypasses the judge** → inbox |
+| **Passive** | `message.channels` / `message.groups` | **anyone except the partner** | anchored → `slack_channel` → normal extractor → judge → thresholds |
 
-```ts
-// For channel messages (not DMs), only process if:
-// - The partner is @mentioned in the message, OR
-// - The message is in a thread the partner started, OR
-// - The message is a reaction event from the partner
-```
+**Anchoring (passive path only).** A passive channel message is captured only when it references the partner — otherwise channel noise is overwhelming. A message anchors when any of:
+- it `@`-tags the partner (`<@PARTNER_SLACK_USER_ID>`), OR
+- its text names the partner — `PARTNER_NAME` or any `PARTNER_ALIASES` entry (env-driven, comma-separated, case-insensitive, word-boundary matched), OR
+- it lands in a thread the partner has posted in (`conversations.replies` contains the partner).
 
-This is much more aggressive filtering than email. Slack channel noise is overwhelming; only direct engagement is worth extracting.
+The partner's **own** messages are never captured passively (`event.user === PARTNER_SLACK_USER_ID` is dropped).
+
+**Context window — every path.** A capture never extracts from a lone fragment: a "LOL" or "👍" carries the real ask in the lines before it ("Could you help with this, Jane?" — often without an @tag). `buildWindowBody` assembles a chronological `<author>: <text>` transcript of the surroundings — the **whole thread** (`conversations.replies`) when threaded, otherwise the **last `CONTEXT_WINDOW` (10) messages** up to and including the trigger (`conversations.history`) — and that transcript is the signal body the extractor sees.
+
+**Why the judge bypass.** Explicit captures (`slack_capture`, `slack_reaction`) are the partner's deliberate gesture — their intent *is* the QC. `EXPLICIT_SLACK_SUBSOURCES` in `extraction.processor.ts` skips both the skip-below gate and the adversarial judge and forces `inbox` + `autoCreated`. Passive `slack_channel` runs the full pipeline with conservative thresholds.
 
 ### Rate limits
 
-Slack rate-limits per-method, mostly Tier 3 (50+ RPM):
+Slack rate-limits per-method, mostly Tier 3 (50+ RPM). Every capture now fans out to a few read calls, so caching matters:
 
-- `users.info`: cache aggressively, 1h TTL in Redis
-- `conversations.info`: same
-- `conversations.history`: only called on reaction events, low volume
+- `users.info` / `conversations.info`: cached in-memory per process (1h Redis TTL planned for production)
+- `conversations.history`: called per capture to build the context window (limit 10) and to fetch a reacted message (limit 1)
+- `conversations.replies`: called for threaded captures and to test the thread anchor
 
-For startup, prefer `users.list` once and cache the result rather than per-message lookups. Move to Redis-backed cache for production.
+For startup, prefer `users.list` once and cache the result rather than per-message lookups. Move to a Redis-backed cache for production.
 
 ---
 
@@ -263,9 +300,17 @@ For startup, prefer `users.list` once and cache the result rather than per-messa
 
 1. Create internal integration at notion.so/profile/integrations
 2. Capabilities: Read content, Read user information
-3. Webhook subscription URL: `https://<domain>/webhooks/notion`
-4. Subscribe to events: `page.content_updated`, `page.properties_updated`, `comment.created`
+3. Webhook subscription URL: `https://<domain>/api/webhooks/notion`  ← note the `/api` global prefix
+4. Subscribe to events: `page.created`, `page.content_updated`, `page.properties_updated`, `comment.created` (these are the ones `notion.service.ts` handles)
 5. Share the relevant databases/pages with the integration (in Notion UI)
+
+### Credentials — where to get each
+
+| Value (env var) | Where in Notion to get it |
+|---|---|
+| `NOTION_VERIFICATION_TOKEN` | notion.so/profile/integrations → your integration → **Webhooks** → create a subscription pointing at `https://<domain>/api/webhooks/notion`. Notion sends a one-time `{ "verification_token": "…" }` POST to that endpoint (grab it from the server logs) and you paste it back to confirm. This same token signs every later event via the `Notion-Signature` HMAC. **This is the only Notion credential the runtime uses today.** |
+| `PARTNER_NOTION_USER_ID` | The partner's Notion user ID (a UUID). Easiest: with the Internal Integration Secret below, call `GET https://api.notion.com/v1/users` (header `Notion-Version: 2022-06-28`) and copy the partner's `id`. |
+| Internal Integration Secret (`ntn_…`) | notion.so/profile/integrations → your integration → **Configuration** → *Internal Integration Secret* (Show → Copy). **Not read by the runtime yet** (see CLAUDE.md → Pending Work: full-content fetch) — but you need it now to look up the user ID above, and later for fetching full page/block content. |
 
 ### Signature verification
 
@@ -280,6 +325,8 @@ if (!timingSafeEqual(Buffer.from(`v0=${expected}`), Buffer.from(signature))) {
 ```
 
 ### Mention detection
+
+> ⚠️ **Not yet implemented (post-MVP).** The current `notion.service.ts` detects mentions/assignments from the webhook **payload only** (title + `rich_text`/`people` properties + comment `rich_text`). The API-fetch below is the target design and needs the Internal Integration Secret; tracked in CLAUDE.md → Pending Work.
 
 Notion webhooks deliver event metadata, not full content. After receiving, fetch the page:
 
@@ -308,62 +355,63 @@ A given content state is only ingested once even if Notion sends multiple webhoo
 
 ### API access
 
-Granola Personal API requires a paid Granola subscription. The partner generates an API key at granola.ai/settings/api.
+Public API — https://docs.granola.ai. Requires a paid Granola plan.
+- **Base URL:** `https://public-api.granola.ai/v1` (note: **not** `api.granola.ai` — that host 404s)
+- **Auth:** `Authorization: Bearer grn_…`
+- **Key:** Granola **desktop app** → Settings → Connectors → API keys → "Create new key". Stored as `GRANOLA_API_KEY`; base overridable via `GRANOLA_API_BASE`.
+
+> The list endpoint only returns notes that already have a generated AI **summary + transcript**, and there are **no pre-extracted action items** in the API. So we ingest each note's `summary_text` and let the normal extractor pull tasks (same path as every other source).
 
 ### Polling loop
 
 ```ts
-@Cron('*/30 * * * * *') // every 30s
+@Cron('*/30 * * * * *') // every 30s (BullMQ repeatable job)
 async pollGranola() {
-  const state = await this.getPollState();
-  const since = state.lastPolledAt;
+  const since = (await this.getPollState()).lastPolledAt;
 
-  const response = await fetch(
-    `https://api.granola.ai/v1/notes?since=${since.toISOString()}`,
-    { headers: { Authorization: `Bearer ${this.apiKey}` } }
-  );
+  // 1. List notes updated since last poll (cursor-paginated, page_size ≤ 30)
+  //    GET /v1/notes?updated_after=<iso>&page_size=30&cursor=<...>
+  //    → { notes: [{ id, title, owner:{name,email}, created_at, updated_at }], hasMore, cursor }
+  const notes = await this.fetchNotes(since);
 
-  const { notes } = await response.json();
-
-  for (const note of notes) {
-    await this.processNote(note);
-  }
+  // 2. Fetch each note's detail for the summary, build one signal per note
+  for (const note of notes) await this.processNote(note);
 
   await this.updatePollState({ lastPolledAt: new Date() });
 }
 ```
 
+`updated_after` (not `created_after`) is used so notes whose summary lands after creation aren't missed.
+
 ### Note processing
 
-Granola structures notes with sections including "Action items" pre-extracted. We use those directly rather than re-extracting from the full transcript:
+One signal per note, built from `summary_text` (falling back to `summary_markdown`), deduped by note id. The extractor pulls actionable tasks from the summary.
 
 ```ts
-async processNote(note: GranolaNote) {
-  // Skip if no action items
-  if (!note.actionItems?.length) return;
+async processNote(summary: GranolaNoteSummary) {
+  // GET /v1/notes/{id} → { …, summary_text, summary_markdown, web_url, transcript }
+  const detail = await this.get(`/notes/${summary.id}`);
+  const body = (detail.summary_text || detail.summary_markdown || '').trim();
+  if (!body) return; // no summary yet → skip
 
-  for (const actionItem of note.actionItems) {
-    await this.signals.insert({
-      source: 'granola',
-      subSource: 'granola',
-      externalId: `${note.id}:${actionItem.id}`,
-      dedupKey: `granola:${note.id}:${actionItem.id}`,
-      payload: {
-        title: `Action item from ${note.title}`,
-        body: actionItem.text,
-        author: note.participants?.[0],
-        participants: note.participants,
-        occurredAt: note.endedAt,
-        url: `https://granola.ai/notes/${note.id}`,
-        threadId: note.id,
-        raw: note,
-      },
-    });
-  }
+  await this.signals.insert({
+    source: 'granola',
+    subSource: 'granola',
+    externalId: summary.id,
+    dedupKey: `granola:${summary.id}`,
+    payload: {
+      title: summary.title || 'Granola meeting note',
+      body,
+      author: summary.owner,           // { name, email }
+      url: detail.web_url,
+      occurredAt: summary.created_at,
+      raw: { noteId: summary.id },
+    },
+  });
 }
 ```
 
-The extractor still runs on these, but it's largely re-confirming structured data Granola provided. Thresholds are aggressive (see `extraction.processor.ts`) because the signal quality is high.
+The `folder_id` query param (with `GET /v1/folders` to list folders) is available if scoping to specific workspace folders is needed later.
 
 ### Failure modes
 

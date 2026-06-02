@@ -11,7 +11,7 @@ Full spec: `SPECIFICATION.md`. Architecture decisions: `docs/decisions.md`.
 npm install
 cp apps/api/.env.example apps/api/.env  # fill in secrets
 npm run db:setup              # drop + create + migrate + seed (first time)
-npm run dev                   # Web :3000, API :4000 (Vite proxies /api → :4000)
+npm run dev                   # Web :3100, API :4100 (Vite proxies /api → :4100)
 ```
 
 ### Database Scripts
@@ -20,19 +20,25 @@ npm run dev                   # Web :3000, API :4000 (Vite proxies /api → :400
 npm run db:create             # Create the "assistant" database
 npm run db:drop               # Drop the database (refuses in production)
 npm run db:migrate            # Run Drizzle migrations
-npm run db:seed               # Seed source_config thresholds + prompt v1
-npm run db:setup              # Drop → create → migrate → seed (full reset)
+npm run db:seed               # Seed source_config thresholds + prompts
+npm run db:seed:tasks         # Insert demo tasks/signals/entities (wipes those tables first)
+npm run db:clean              # Wipe tasks/signals/history; keeps config + prompts. `-- --entities` also clears the glossary
+npm run db:setup              # Drop → create → migrate → seed → seed:tasks (full reset, with demo data)
 npm run db:generate           # Generate new migration from schema changes
 npm run db:studio             # Open Drizzle Studio GUI
 ```
 
+> **Clean slate for real-integration testing:** `npm run db:clean -- --entities` empties tasks, signals,
+> extraction_feedback, task_notes, llm_audit_log, and the entity glossary while preserving `source_config`
+> and the active `prompt_versions` (so extraction keeps working). Refuses to run in production.
+
 ## Tech Stack
 
-- **NestJS 11** (Fastify 5 adapter) — API on port 4000
-- **React 19** + Vite 6 + Tailwind v4 — dev on port 3000
+- **NestJS 11** (Fastify 5 adapter) — API on port 4100
+- **React 19** + Vite 6 + Tailwind v4 — dev on port 3100
 - **Drizzle ORM** 0.36 — SQL-first migrations, schema at `apps/api/src/db/schema/index.ts`
 - **BullMQ** 5 + Redis 7 — async job processing
-- **Anthropic SDK** 0.97 — Opus 4.7 (extraction), Haiku 4.5 (judge/classify)
+- **LLM layer** — provider-swappable via `LLM_PROVIDER` (default `anthropic`). Anthropic SDK 0.97 (Opus 4.7 extraction, Haiku 4.5 judge/classify) or OpenAI SDK 6 (`gpt-4o`/`gpt-4o-mini`, models env-overridable). All calls go through `shared/llm/LlmService`
 - **PostgreSQL 16** — primary data store
 - **npm** workspaces — monorepo (nvm for Node version management)
 
@@ -40,11 +46,12 @@ npm run db:studio             # Open Drizzle Studio GUI
 
 ```
 apps/api/src/
-  main.ts                 Fastify bootstrap, global prefix /api, port 4000
+  main.ts                 Fastify bootstrap, global prefix /api, port 4100
   app.module.ts           Root DI — all modules registered here
   auth/                   JWT auth (single-tenant). @Public() for webhooks
   db/                     Drizzle schema, migrate.ts, seed.ts
-  shared/                 QueuesModule (BullMQ names), AnthropicModule (SDK + model constants)
+  shared/                 QueuesModule (BullMQ names), AnthropicModule (client + model constants),
+                          llm/ (LlmService + Anthropic/OpenAI providers, picked by LLM_PROVIDER)
   signals/                Signal insert-with-dedup service
   entities/               Entity CRUD + glossary XML cache (1h TTL)
   extraction/             Core pipeline: ExtractorService → JudgeService → ExtractionProcessor
@@ -131,7 +138,7 @@ Prompts live in `prompt_versions` table, not in code. Each has a `purpose` (extr
 - **Global prefix**: `/api` in `main.ts`. Controllers use relative paths: `@Controller('tasks')`.
 - **Auth**: Google Sign-In only (single-tenant). Backend verifies Google ID tokens via `google-auth-library`, requires `email_verified=true` and a case-insensitive match against `ALLOWED_GOOGLE_EMAIL`, then issues a 24h JWT. `AuthGuard` is global; `@Public()` bypasses JWT for webhooks. Sliding refresh: `RefreshInterceptor` attaches `X-Refresh-Token` + `X-Refresh-Expires` headers when the access token is within 6h of expiry; the web client picks them up in its base query and updates `authSlice`.
 - **Webhook security**: Slack = HMAC, Gmail = Pub/Sub JWT, Notion = HMAC. Each verifies in controller.
-- **Static serving**: production NestJS serves `apps/web/dist` via `ServeStaticModule`. Dev: Vite :3000 proxies to :4000.
+- **Static serving**: production NestJS serves `apps/web/dist` via `ServeStaticModule`. Dev: Vite :3100 proxies to :4100.
 - **Tests**: every module has `.spec.ts` (Jest) or `.test.tsx` (Vitest). Update all 3 suites on contract changes.
 - **Styling**: Tailwind v4, dark mode default, 44px min touch targets, mobile-first single column.
 
@@ -161,7 +168,9 @@ See `apps/api/.env.example` for full list. Critical ones:
 - `GOOGLE_CLIENT_ID` — Web-app OAuth client; used for BOTH Google Sign-In (ID-token verification) and Gmail/Drive scopes
 - `ALLOWED_GOOGLE_EMAIL` — the single email permitted to sign in (case-insensitive)
 - `VITE_GOOGLE_CLIENT_ID` (web) — same value as `GOOGLE_CLIENT_ID`
-- `ANTHROPIC_API_KEY` — LLM calls
+- `LLM_PROVIDER` — `anthropic` (default) or `openai`; selects the active LLM backend
+- `ANTHROPIC_API_KEY` — LLM calls when provider=anthropic (now optional; only the active provider needs its key)
+- `OPENAI_API_KEY` (+ optional `OPENAI_MODEL_EXTRACTOR`/`_JUDGE`/`_CLASSIFIER`) — LLM calls when provider=openai
 - `DATABASE_URL` — Postgres connection
 - `REDIS_URL` (Heroku) or `REDIS_HOST`/`REDIS_PORT` (local) — BullMQ + cache
 - `PARTNER_NAME`, `PARTNER_ROLE` — injected into extraction prompts
@@ -207,6 +216,14 @@ git push heroku main
 ## Common Patterns
 
 - **Adding a new source**: Create `ingestion/<source>/` with module, controller (`@Public()`), service. Register in `AppModule`. Add sub-source thresholds to `seed.ts`.
-- **Changing extraction behavior**: Edit the active prompt via `/settings/prompts` or create a new version in `prompt_versions` table. Do NOT edit `prompts.ts` directly.
+- **Changing extraction behavior**: For runtime tuning, edit the active prompt via `/settings/prompts` (or let calibration draft a version). For structural changes (new template var, standing rules), edit the `prompts.ts` builder — `db:seed` republishes a changed template as a new active version, but only if the current active version was seed-created (it won't clobber a hand/calibration-tuned prompt). Template vars (`{{PARTNER_NAME}}`, `{{PARTNER_ROLE}}`, `{{PARTNER_ALIASES}}`, `{{ENTITY_GLOSSARY}}`) are global-replaced in `ExtractorService`.
 - **Adding a new task field**: Update schema → shared types → tasks service → tasks controller → RTK Query api.ts → TaskCard/TaskDetailPage → tests.
 - **Modifying thresholds**: Edit via `/settings/thresholds` UI or `PATCH /api/source-config/:source`. No redeploy needed.
+
+## Pending Work (post-MVP)
+
+Scheduled to be addressed **after** the full product is deployed.
+
+- **Gmail: code complete; operational setup only.** Auth is resolved by `ingestion/gmail/gmail-auth.ts` `resolveGmailClient()`, used by both `gmail.service.ts` and `gmail-watch.service.ts`. Two modes: **domain-wide delegation** (`GMAIL_SA_KEY` service-account JSON + `GMAIL_IMPERSONATE_SUBJECT`, preferred for the shared mailbox) and **OAuth refresh token** (`GOOGLE_CLIENT_ID`/`SECRET` + `GMAIL_REFRESH_TOKEN`, fallback). No code work remains — to activate, do the GCP Pub/Sub topic + push subscription and either the service-account + Workspace domain-wide-delegation grant or a refresh token (see `docs/source-integrations.md` → Gmail). The `oauth_tokens` table is now definitively unused and can be dropped.
+- **Notion full-content fetch not implemented (reduced Notion fidelity).** `notion.service.ts` builds signals purely from the webhook payload — page **title**, `rich_text`/`people` **properties**, and **comment** text — and `extractPageContent` explicitly notes `// For webhook events, the full page content is not included … Full block fetch would require API call`. The intended design (`docs/source-integrations.md` → Notion → "Mention detection") calls `notion.pages.retrieve` + `notion.blocks.children.list`, which needs a Notion **integration access token** (Internal Integration Secret) that is **not stored or read** anywhere today. Effect: @mentions / assignments / comments are captured, but full page bodies are not. To finish: store the integration token (env var or `oauth_tokens`), instantiate a Notion client, and fetch page/block content on `page.*` webhooks. Runtime auth today is only the HMAC `NOTION_VERIFICATION_TOKEN`.
+- **Web Push client subscription not implemented (push notifications don't fire).** The **server** side is wired — `notifications.service.ts` uses `web-push` + `setVapidDetails(...)` and there's a `POST /api/notifications/subscribe` endpoint — but the **client** side is missing: there is no `usePushNotifications` hook, no VAPID public key in the web app, and no `pushManager.subscribe(...)` call, so the browser never creates a subscription and there is nothing to push to. Effect: setting `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` is harmless but inert (unset → service logs "VAPID keys not configured — push notifications disabled" and skips). To finish: expose the VAPID public key to the web (env or an API endpoint), add a hook that registers the service-worker push subscription with `applicationServerKey` and POSTs it to `/api/notifications/subscribe`. (Optional for MVP.)
