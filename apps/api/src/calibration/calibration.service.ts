@@ -1,7 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import Anthropic from '@anthropic-ai/sdk';
 import { and, desc, eq, gte } from 'drizzle-orm';
-import { ANTHROPIC, MODELS } from '../shared/anthropic.module';
+import { LlmService } from '../shared/llm/llm.service';
 import { DB, DbType } from '../db/db.module';
 import { extractionFeedback, tasks } from '../db/schema';
 import { PromptsService } from '../prompts/prompts.service';
@@ -20,7 +19,7 @@ export class CalibrationService {
   private readonly logger = new Logger(CalibrationService.name);
 
   constructor(
-    @Inject(ANTHROPIC) private readonly anthropic: Anthropic,
+    private readonly llm: LlmService,
     @Inject(DB) private readonly db: DbType,
     private readonly promptsService: PromptsService,
   ) {}
@@ -72,13 +71,10 @@ export class CalibrationService {
       dismissedCount: feedback.filter((f) => f.action === 'dismissed').length,
     };
 
-    const response = await this.anthropic.messages.create({
-      model: MODELS.EXTRACTOR,
-      max_tokens: 2000,
-      system: [
-        {
-          type: 'text',
-          text: `You are a prompt calibration analyst. You review extraction feedback (accept/edit/dismiss actions from a VC partner) and identify patterns in false positives.
+    const completion = await this.llm.complete({
+      purpose: 'extract',
+      maxTokens: 2000,
+      system: `You are a prompt calibration analyst. You review extraction feedback (accept/edit/dismiss actions from a VC partner) and identify patterns in false positives.
 
 Your output is a JSON object:
 {
@@ -89,14 +85,10 @@ Your output is a JSON object:
 }
 
 Be specific. "Reduce noise" is useless. "Add rule: skip signals from auto-responder domains" is useful.`,
-        },
-      ],
-      messages: [{ role: 'user', content: JSON.stringify(analysisInput, null, 2) }],
+      user: JSON.stringify(analysisInput, null, 2),
     });
 
-    const text = response.content.find((b) => b.type === 'text')?.type === 'text'
-      ? (response.content.find((b) => b.type === 'text') as Anthropic.TextBlock).text
-      : '';
+    const text = completion.text;
 
     let analysis: { patterns: string[]; suggestedPromptEdits: string; confidence: number };
     try {

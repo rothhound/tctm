@@ -3,7 +3,7 @@ import { and, count, desc, eq, gte, inArray, isNull, lte, ne, or, sql } from 'dr
 import { DB, DbType } from '../db/db.module';
 import { tasks, extractionFeedback, taskNotes } from '../db/schema';
 import { ExtractedTask, JudgeVerdict } from '../extraction/types';
-import { MODELS } from '../shared/anthropic.module';
+import { LlmService } from '../shared/llm/llm.service';
 
 interface CreateFromExtractionInput {
   signalId: string;
@@ -20,7 +20,10 @@ interface CreateFromExtractionInput {
 export class TasksService {
   private readonly logger = new Logger(TasksService.name);
 
-  constructor(@Inject(DB) private readonly db: DbType) {}
+  constructor(
+    @Inject(DB) private readonly db: DbType,
+    private readonly llm: LlmService,
+  ) {}
 
   async createFromExtraction(input: CreateFromExtractionInput): Promise<string | null> {
     const dedupSince = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -79,8 +82,8 @@ export class TasksService {
       signals: task.signals,
       ambiguityFlags: task.ambiguityFlags,
       judge: verdict,
-      extractorModel: MODELS.EXTRACTOR,
-      judgeModel: MODELS.JUDGE,
+      extractorModel: this.llm.modelFor('extract'),
+      judgeModel: this.llm.modelFor('judge'),
       extractedAt: new Date().toISOString(),
     };
   }

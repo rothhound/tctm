@@ -1,18 +1,28 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { SnoozeService } from './snooze.service';
-import { ANTHROPIC } from '../shared/anthropic.module';
+import { LlmService } from '../shared/llm/llm.service';
+
+function completion(text: string) {
+  return {
+    text,
+    provider: 'anthropic' as const,
+    model: 'claude-haiku-4-5-20251001',
+    usage: { inputTokens: 50, outputTokens: 20, cacheReadTokens: 0, cacheCreationTokens: 0 },
+    costUsd: 0,
+  };
+}
 
 describe('SnoozeService', () => {
   let service: SnoozeService;
-  let mockCreate: jest.Mock;
+  let mockComplete: jest.Mock;
 
   beforeEach(async () => {
-    mockCreate = jest.fn();
+    mockComplete = jest.fn();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SnoozeService,
-        { provide: ANTHROPIC, useValue: { messages: { create: mockCreate } } },
+        { provide: LlmService, useValue: { complete: mockComplete } },
       ],
     }).compile();
 
@@ -20,9 +30,9 @@ describe('SnoozeService', () => {
   });
 
   it('parses "next Tuesday" into an ISO date', async () => {
-    mockCreate.mockResolvedValue({
-      content: [{ type: 'text', text: '{"date":"2026-05-26T09:00:00Z","confidence":0.95,"interpretation":"next Tuesday morning"}' }],
-    });
+    mockComplete.mockResolvedValue(
+      completion('{"date":"2026-05-26T09:00:00Z","confidence":0.95,"interpretation":"next Tuesday morning"}'),
+    );
 
     const result = await service.parseNaturalLanguage('next Tuesday');
     expect(result.date).toBe('2026-05-26T09:00:00Z');
@@ -30,9 +40,9 @@ describe('SnoozeService', () => {
   });
 
   it('returns null date on unparseable input', async () => {
-    mockCreate.mockResolvedValue({
-      content: [{ type: 'text', text: '{"date":null,"confidence":0.1,"interpretation":"unclear timing"}' }],
-    });
+    mockComplete.mockResolvedValue(
+      completion('{"date":null,"confidence":0.1,"interpretation":"unclear timing"}'),
+    );
 
     const result = await service.parseNaturalLanguage('sometime later');
     expect(result.date).toBeNull();
@@ -40,7 +50,7 @@ describe('SnoozeService', () => {
   });
 
   it('returns fallback on API error', async () => {
-    mockCreate.mockRejectedValue(new Error('API down'));
+    mockComplete.mockRejectedValue(new Error('API down'));
 
     const result = await service.parseNaturalLanguage('tomorrow');
     expect(result.date).toBeNull();

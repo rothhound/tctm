@@ -2,12 +2,22 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { WaitingOnService } from './waiting-on.service';
 import { EntitiesService } from '../entities/entities.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { ANTHROPIC } from '../shared/anthropic.module';
+import { LlmService } from '../shared/llm/llm.service';
 import { DB } from '../db/db.module';
+
+function completion(text: string) {
+  return {
+    text,
+    provider: 'anthropic' as const,
+    model: 'claude-haiku-4-5-20251001',
+    usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 0, cacheCreationTokens: 0 },
+    costUsd: 0,
+  };
+}
 
 describe('WaitingOnService', () => {
   let service: WaitingOnService;
-  let mockAnthropicCreate: jest.Mock;
+  let mockComplete: jest.Mock;
   let mockNotifications: Partial<NotificationsService>;
   let mockEntities: Partial<EntitiesService>;
   let selectResults: any[];
@@ -35,10 +45,7 @@ describe('WaitingOnService', () => {
   };
 
   beforeEach(async () => {
-    mockAnthropicCreate = jest.fn().mockResolvedValue({
-      content: [{ type: 'text', text: '{"resolves": true, "reason": "CFO sent the report"}' }],
-      usage: { input_tokens: 100, output_tokens: 20 },
-    });
+    mockComplete = jest.fn().mockResolvedValue(completion('{"resolves": true, "reason": "CFO sent the report"}'));
 
     mockNotifications = {
       sendPush: jest.fn().mockResolvedValue(undefined),
@@ -69,7 +76,7 @@ describe('WaitingOnService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         WaitingOnService,
-        { provide: ANTHROPIC, useValue: { messages: { create: mockAnthropicCreate } } },
+        { provide: LlmService, useValue: { complete: mockComplete } },
         { provide: DB, useValue: mockDb },
         { provide: EntitiesService, useValue: mockEntities },
         { provide: NotificationsService, useValue: mockNotifications },
@@ -88,7 +95,7 @@ describe('WaitingOnService', () => {
 
     await service.checkResolution('sig-001');
 
-    expect(mockAnthropicCreate).toHaveBeenCalled();
+    expect(mockComplete).toHaveBeenCalled();
     expect(mockNotifications.sendPush).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Task resolved' }),
     );
@@ -101,7 +108,7 @@ describe('WaitingOnService', () => {
     ];
 
     await service.checkResolution('sig-001');
-    expect(mockAnthropicCreate).not.toHaveBeenCalled();
+    expect(mockComplete).not.toHaveBeenCalled();
   });
 
   it('does nothing when no waiting_on tasks match the entity', async () => {
@@ -111,14 +118,11 @@ describe('WaitingOnService', () => {
     ];
 
     await service.checkResolution('sig-001');
-    expect(mockAnthropicCreate).not.toHaveBeenCalled();
+    expect(mockComplete).not.toHaveBeenCalled();
   });
 
-  it('does not auto-resolve when Haiku says no', async () => {
-    mockAnthropicCreate.mockResolvedValue({
-      content: [{ type: 'text', text: '{"resolves": false, "reason": "Unrelated message"}' }],
-      usage: { input_tokens: 100, output_tokens: 20 },
-    });
+  it('does not auto-resolve when the classifier says no', async () => {
+    mockComplete.mockResolvedValue(completion('{"resolves": false, "reason": "Unrelated message"}'));
 
     selectResults = [
       [mockSignal],
@@ -129,11 +133,8 @@ describe('WaitingOnService', () => {
     expect(mockNotifications.sendPush).not.toHaveBeenCalled();
   });
 
-  it('fails safe when Haiku returns invalid response', async () => {
-    mockAnthropicCreate.mockResolvedValue({
-      content: [{ type: 'text', text: 'not json' }],
-      usage: { input_tokens: 100, output_tokens: 20 },
-    });
+  it('fails safe when the classifier returns an invalid response', async () => {
+    mockComplete.mockResolvedValue(completion('not json'));
 
     selectResults = [
       [mockSignal],

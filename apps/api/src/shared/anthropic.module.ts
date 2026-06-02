@@ -9,12 +9,14 @@ export const ANTHROPIC = Symbol('ANTHROPIC');
   imports: [ConfigModule],
   providers: [
     {
+      // Null when ANTHROPIC_API_KEY is unset, so the app can run on OpenAI alone. The Anthropic
+      // LlmProvider surfaces a clear error if it's selected without a key.
       provide: ANTHROPIC,
       inject: [ConfigService],
-      useFactory: (config: ConfigService) =>
-        new Anthropic({
-          apiKey: config.getOrThrow<string>('ANTHROPIC_API_KEY'),
-        }),
+      useFactory: (config: ConfigService) => {
+        const apiKey = config.get<string>('ANTHROPIC_API_KEY');
+        return apiKey ? new Anthropic({ apiKey }) : null;
+      },
     },
   ],
   exports: [ANTHROPIC],

@@ -1,13 +1,24 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { JudgeService } from './judge.service';
-import { ANTHROPIC } from '../shared/anthropic.module';
+import { LlmService } from '../shared/llm/llm.service';
 import { DB } from '../db/db.module';
 import { PromptsService } from '../prompts/prompts.service';
 import type { ExtractedTask } from './types';
 
+/** Build an LlmService.complete() result wrapping the given model text. */
+function completion(text: string) {
+  return {
+    text,
+    provider: 'anthropic' as const,
+    model: 'claude-haiku-4-5-20251001',
+    usage: { inputTokens: 200, outputTokens: 30, cacheReadTokens: 0, cacheCreationTokens: 0 },
+    costUsd: 0,
+  };
+}
+
 describe('JudgeService', () => {
   let service: JudgeService;
-  let mockAnthropicCreate: jest.Mock;
+  let mockComplete: jest.Mock;
 
   const mockTask: ExtractedTask = {
     title: 'Send cap table to Roelof',
@@ -27,7 +38,7 @@ describe('JudgeService', () => {
   };
 
   beforeEach(async () => {
-    mockAnthropicCreate = jest.fn();
+    mockComplete = jest.fn();
 
     const mockDb = {
       select: jest.fn().mockReturnThis(),
@@ -43,7 +54,10 @@ describe('JudgeService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         JudgeService,
-        { provide: ANTHROPIC, useValue: { messages: { create: mockAnthropicCreate } } },
+        {
+          provide: LlmService,
+          useValue: { complete: mockComplete, modelFor: jest.fn().mockReturnValue('claude-haiku-4-5-20251001') },
+        },
         { provide: DB, useValue: mockDb },
         {
           provide: PromptsService,
@@ -61,40 +75,28 @@ describe('JudgeService', () => {
   });
 
   it('returns KEEP verdict', async () => {
-    mockAnthropicCreate.mockResolvedValue({
-      content: [{ type: 'text', text: '{"verdict":"KEEP","reason":"Clear actionable task"}' }],
-      usage: { input_tokens: 200, output_tokens: 30, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
-    });
+    mockComplete.mockResolvedValue(completion('{"verdict":"KEEP","reason":"Clear actionable task"}'));
 
     const result = await service.judge(mockTask, 'sig-001');
     expect(result.verdict).toBe('KEEP');
   });
 
   it('returns DISMISS verdict', async () => {
-    mockAnthropicCreate.mockResolvedValue({
-      content: [{ type: 'text', text: '{"verdict":"DISMISS","reason":"FYI content"}' }],
-      usage: { input_tokens: 200, output_tokens: 30, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
-    });
+    mockComplete.mockResolvedValue(completion('{"verdict":"DISMISS","reason":"FYI content"}'));
 
     const result = await service.judge(mockTask, 'sig-001');
     expect(result.verdict).toBe('DISMISS');
   });
 
   it('returns REVIEW verdict', async () => {
-    mockAnthropicCreate.mockResolvedValue({
-      content: [{ type: 'text', text: '{"verdict":"REVIEW","reason":"Ambiguous assignee"}' }],
-      usage: { input_tokens: 200, output_tokens: 30, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
-    });
+    mockComplete.mockResolvedValue(completion('{"verdict":"REVIEW","reason":"Ambiguous assignee"}'));
 
     const result = await service.judge(mockTask, 'sig-001');
     expect(result.verdict).toBe('REVIEW');
   });
 
   it('fails open to REVIEW on invalid JSON', async () => {
-    mockAnthropicCreate.mockResolvedValue({
-      content: [{ type: 'text', text: 'not json' }],
-      usage: { input_tokens: 200, output_tokens: 30, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
-    });
+    mockComplete.mockResolvedValue(completion('not json'));
 
     const result = await service.judge(mockTask, 'sig-001');
     expect(result.verdict).toBe('REVIEW');
@@ -102,10 +104,7 @@ describe('JudgeService', () => {
   });
 
   it('fails open to REVIEW on missing fields', async () => {
-    mockAnthropicCreate.mockResolvedValue({
-      content: [{ type: 'text', text: '{"verdict":"KEEP"}' }],
-      usage: { input_tokens: 200, output_tokens: 30, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
-    });
+    mockComplete.mockResolvedValue(completion('{"verdict":"KEEP"}'));
 
     const result = await service.judge(mockTask, 'sig-001');
     // Missing "reason" field should cause Zod parse to fail → REVIEW

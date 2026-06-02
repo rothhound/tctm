@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { TasksService } from './tasks.service';
 import { DB } from '../db/db.module';
+import { LlmService } from '../shared/llm/llm.service';
 import type { ExtractedTask, JudgeVerdict } from '../extraction/types';
 
 describe('TasksService', () => {
@@ -114,6 +115,10 @@ describe('TasksService', () => {
       providers: [
         TasksService,
         { provide: DB, useValue: mockDb },
+        {
+          provide: LlmService,
+          useValue: { modelFor: (p: string) => (p === 'extract' ? 'claude-opus-4-7' : 'claude-haiku-4-5-20251001') },
+        },
       ],
     }).compile();
 

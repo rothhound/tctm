@@ -1,7 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import Anthropic from '@anthropic-ai/sdk';
 import { and, eq, sql } from 'drizzle-orm';
-import { ANTHROPIC, MODELS } from '../shared/anthropic.module';
+import { LlmService } from '../shared/llm/llm.service';
 import { DB, DbType } from '../db/db.module';
 import { tasks, signals, entities, extractionFeedback } from '../db/schema';
 import { EntitiesService } from '../entities/entities.service';
@@ -12,7 +11,7 @@ export class WaitingOnService {
   private readonly logger = new Logger(WaitingOnService.name);
 
   constructor(
-    @Inject(ANTHROPIC) private readonly anthropic: Anthropic,
+    private readonly llm: LlmService,
     @Inject(DB) private readonly db: DbType,
     private readonly entities: EntitiesService,
     private readonly notifications: NotificationsService,
@@ -65,30 +64,18 @@ export class WaitingOnService {
     signal: typeof signals.$inferSelect,
   ): Promise<boolean> {
     try {
-      const response = await this.anthropic.messages.create({
-        model: MODELS.CLASSIFIER,
-        max_tokens: 100,
-        system: [
-          {
-            type: 'text',
-            text: 'You determine if a new message resolves a waiting-on task. Respond with ONLY valid JSON: {"resolves": true/false, "reason": "short explanation"}',
-          },
-        ],
-        messages: [
-          {
-            role: 'user',
-            content: JSON.stringify({
-              waitingOnTask: { title: task.title, description: task.description },
-              newMessage: { body: signal.payload.body, author: signal.payload.author?.name },
-            }),
-          },
-        ],
+      const completion = await this.llm.complete({
+        purpose: 'classify',
+        maxTokens: 100,
+        system:
+          'You determine if a new message resolves a waiting-on task. Respond with ONLY valid JSON: {"resolves": true/false, "reason": "short explanation"}',
+        user: JSON.stringify({
+          waitingOnTask: { title: task.title, description: task.description },
+          newMessage: { body: signal.payload.body, author: signal.payload.author?.name },
+        }),
       });
 
-      const text = response.content.find((b) => b.type === 'text')?.type === 'text'
-        ? (response.content.find((b) => b.type === 'text') as Anthropic.TextBlock).text
-        : '';
-      const cleaned = text.replace(/```json|```/g, '').trim();
+      const cleaned = completion.text.replace(/```json|```/g, '').trim();
       const result = JSON.parse(cleaned);
       return result.resolves === true;
     } catch (err: any) {

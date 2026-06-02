@@ -7,6 +7,7 @@ import { ServeStaticModule } from '@nestjs/serve-static';
 import { DbModule } from './db/db.module';
 import { QueuesModule } from './shared/queues.module';
 import { AnthropicModule } from './shared/anthropic.module';
+import { LlmModule } from './shared/llm/llm.module';
 import { AuthModule } from './auth/auth.module';
 import { AuthGuard } from './auth/auth.guard';
 import { RefreshInterceptor } from './auth/refresh.interceptor';
@@ -40,6 +41,7 @@ import { CalibrationModule } from './calibration/calibration.module';
     DbModule,
     QueuesModule,
     AnthropicModule,
+    LlmModule,
     AuthModule,
     HealthModule,
     SignalsModule,

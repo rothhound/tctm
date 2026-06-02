@@ -1,25 +1,34 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CalibrationService } from './calibration.service';
 import { PromptsService } from '../prompts/prompts.service';
-import { ANTHROPIC } from '../shared/anthropic.module';
+import { LlmService } from '../shared/llm/llm.service';
 import { DB } from '../db/db.module';
+
+function completion(text: string) {
+  return {
+    text,
+    provider: 'anthropic' as const,
+    model: 'claude-opus-4-7',
+    usage: { inputTokens: 800, outputTokens: 300, cacheReadTokens: 0, cacheCreationTokens: 0 },
+    costUsd: 0,
+  };
+}
 
 describe('CalibrationService', () => {
   let service: CalibrationService;
-  let mockAnthropicCreate: jest.Mock;
+  let mockComplete: jest.Mock;
   let mockPromptsService: Partial<PromptsService>;
 
   beforeEach(async () => {
-    mockAnthropicCreate = jest.fn().mockResolvedValue({
-      content: [{
-        type: 'text',
-        text: JSON.stringify({
+    mockComplete = jest.fn().mockResolvedValue(
+      completion(
+        JSON.stringify({
           patterns: ['Newsletter-style emails being extracted as tasks'],
           suggestedPromptEdits: 'Add rule: skip signals with newsletter-like subject patterns',
           confidence: 0.85,
         }),
-      }],
-    });
+      ),
+    );
 
     mockPromptsService = {
       getActivePrompt: jest.fn().mockResolvedValue({
@@ -49,7 +58,7 @@ describe('CalibrationService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CalibrationService,
-        { provide: ANTHROPIC, useValue: { messages: { create: mockAnthropicCreate } } },
+        { provide: LlmService, useValue: { complete: mockComplete, modelFor: jest.fn().mockReturnValue('claude-opus-4-7') } },
         { provide: DB, useValue: mockDb },
         { provide: PromptsService, useValue: mockPromptsService },
       ],
@@ -79,12 +88,9 @@ describe('CalibrationService', () => {
   });
 
   it('does not create prompt version when confidence is low', async () => {
-    mockAnthropicCreate.mockResolvedValue({
-      content: [{
-        type: 'text',
-        text: JSON.stringify({ patterns: [], suggestedPromptEdits: 'unclear', confidence: 0.3 }),
-      }],
-    });
+    mockComplete.mockResolvedValue(
+      completion(JSON.stringify({ patterns: [], suggestedPromptEdits: 'unclear', confidence: 0.3 })),
+    );
 
     const report = await service.runCalibration();
     expect(report.newPromptVersionId).toBeUndefined();
@@ -108,7 +114,7 @@ describe('CalibrationService', () => {
     const module = await Test.createTestingModule({
       providers: [
         CalibrationService,
-        { provide: ANTHROPIC, useValue: { messages: { create: mockAnthropicCreate } } },
+        { provide: LlmService, useValue: { complete: mockComplete, modelFor: jest.fn().mockReturnValue('claude-opus-4-7') } },
         { provide: DB, useValue: emptyDb },
         { provide: PromptsService, useValue: mockPromptsService },
       ],
@@ -119,6 +125,6 @@ describe('CalibrationService', () => {
 
     expect(report.totalFeedback).toBe(0);
     expect(report.suggestedChanges).toContain('No feedback');
-    expect(mockAnthropicCreate).not.toHaveBeenCalled();
+    expect(mockComplete).not.toHaveBeenCalled();
   });
 });

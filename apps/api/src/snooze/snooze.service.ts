@@ -1,6 +1,5 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
-import Anthropic from '@anthropic-ai/sdk';
-import { ANTHROPIC, MODELS } from '../shared/anthropic.module';
+import { Injectable, Logger } from '@nestjs/common';
+import { LlmService } from '../shared/llm/llm.service';
 
 export interface SnoozeParseResult {
   date: string | null;
@@ -12,28 +11,20 @@ export interface SnoozeParseResult {
 export class SnoozeService {
   private readonly logger = new Logger(SnoozeService.name);
 
-  constructor(@Inject(ANTHROPIC) private readonly anthropic: Anthropic) {}
+  constructor(private readonly llm: LlmService) {}
 
   async parseNaturalLanguage(text: string): Promise<SnoozeParseResult> {
     const now = new Date();
 
     try {
-      const response = await this.anthropic.messages.create({
-        model: MODELS.CLASSIFIER,
-        max_tokens: 200,
-        system: [
-          {
-            type: 'text',
-            text: `You parse natural language time expressions into ISO 8601 dates. The current date/time is ${now.toISOString()}. Respond with ONLY valid JSON: {"date": "ISO8601 string or null", "confidence": 0-1, "interpretation": "what you understood"}`,
-          },
-        ],
-        messages: [{ role: 'user', content: text }],
+      const completion = await this.llm.complete({
+        purpose: 'classify',
+        maxTokens: 200,
+        system: `You parse natural language time expressions into ISO 8601 dates. The current date/time is ${now.toISOString()}. Respond with ONLY valid JSON: {"date": "ISO8601 string or null", "confidence": 0-1, "interpretation": "what you understood"}`,
+        user: text,
       });
 
-      const output = response.content.find((b) => b.type === 'text')?.type === 'text'
-        ? (response.content.find((b) => b.type === 'text') as Anthropic.TextBlock).text
-        : '';
-      const cleaned = output.replace(/```json|```/g, '').trim();
+      const cleaned = completion.text.replace(/```json|```/g, '').trim();
       const result = JSON.parse(cleaned);
 
       return {
