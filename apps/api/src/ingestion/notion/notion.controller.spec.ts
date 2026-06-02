@@ -50,8 +50,15 @@ describe('NotionController', () => {
     expect(result).toEqual({ ok: true });
   });
 
+  it('returns ok for the verification handshake (verification_token, no type)', async () => {
+    const result = await controller.handleWebhook({} as any, undefined, {
+      verification_token: 'secret_abc123',
+    });
+    expect(result).toEqual({ ok: true });
+  });
+
   it('accepts valid HMAC signature', async () => {
-    const body = { type: 'page.updated', page: { id: 'page-1' } };
+    const body = { type: 'page.content_updated', page: { id: 'page-1' } };
     const rawBody = JSON.stringify(body);
     const sig = createHmac('sha256', verificationToken).update(rawBody).digest('hex');
 
@@ -60,7 +67,7 @@ describe('NotionController', () => {
   });
 
   it('rejects invalid HMAC signature', async () => {
-    const body = { type: 'page.updated', page: { id: 'page-1' } };
+    const body = { type: 'page.content_updated', page: { id: 'page-1' } };
     const rawBody = JSON.stringify(body);
 
     await expect(

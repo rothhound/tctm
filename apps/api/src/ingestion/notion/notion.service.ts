@@ -17,8 +17,10 @@ export class NotionService {
     const type = event.type;
 
     switch (type) {
+      // Notion emits page.content_updated / page.properties_updated — there is no "page.updated".
       case 'page.created':
-      case 'page.updated':
+      case 'page.content_updated':
+      case 'page.properties_updated':
         return this.fromPageEvent(event);
       case 'comment.created':
         return this.fromCommentEvent(event);

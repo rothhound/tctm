@@ -28,13 +28,25 @@ export class NotionController {
     @Headers('x-notion-signature') signature: string | undefined,
     @Body() body: any,
   ) {
+    const event = body;
+
+    // One-time webhook setup: Notion POSTs { verification_token } when the subscription is
+    // created. Handle it BEFORE signature verification — the handshake *establishes* the token,
+    // so the request cannot (and must not) be HMAC-verified against a stored secret that may be
+    // empty or stale. Capture it from the logs (dev console / `heroku logs`), paste into Notion's
+    // Verify dialog, then set NOTION_VERIFICATION_TOKEN.
+    if (event.verification_token) {
+      this.logger.warn(`Notion webhook verification_token (set as NOTION_VERIFICATION_TOKEN): ${event.verification_token}`);
+      return { ok: true };
+    }
+
+    // Verify the HMAC signature on real events.
     const rawBodyBuf = (req as any).rawBody;
     if (rawBodyBuf && signature) {
       const rawBody = typeof rawBodyBuf === 'string' ? rawBodyBuf : rawBodyBuf.toString('utf-8');
       this.verifySignature(signature, rawBody);
     }
 
-    const event = body;
     if (!event.type) return { ok: true };
 
     setImmediate(() => {

@@ -85,9 +85,9 @@ describe('NotionService', () => {
   });
 
   describe('toSignal', () => {
-    it('creates signal from page.updated with mention', async () => {
+    it('creates signal from page.content_updated with mention', async () => {
       const event = {
-        type: 'page.updated',
+        type: 'page.content_updated',
         page: {
           id: 'page-001',
           last_edited_time: '2026-05-19T10:00:00Z',
@@ -110,9 +110,9 @@ describe('NotionService', () => {
       expect(signal!.payload.title).toBe('Q2 Review');
     });
 
-    it('creates signal from page with assignment', async () => {
+    it('creates signal from page.properties_updated with assignment', async () => {
       const event = {
-        type: 'page.created',
+        type: 'page.properties_updated',
         page: {
           id: 'page-002',
           last_edited_time: '2026-05-19T11:00:00Z',
@@ -131,7 +131,7 @@ describe('NotionService', () => {
 
     it('returns null for page without mention or assignment', async () => {
       const event = {
-        type: 'page.updated',
+        type: 'page.content_updated',
         page: {
           id: 'page-003',
           last_edited_time: '2026-05-19T12:00:00Z',
