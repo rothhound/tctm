@@ -122,7 +122,6 @@ describe('GmailService', () => {
           useValue: {
             get: jest.fn((key: string, fallback?: any) => {
               const map: Record<string, string> = {
-                GMAIL_USER_EMAIL: 'user@example.com',
                 GOOGLE_CLIENT_ID: 'client-id',
                 GOOGLE_CLIENT_SECRET: 'client-secret',
                 GMAIL_REFRESH_TOKEN: 'refresh-token',

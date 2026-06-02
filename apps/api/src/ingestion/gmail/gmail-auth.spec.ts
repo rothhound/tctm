@@ -13,7 +13,7 @@ const SA_JSON = JSON.stringify({
 
 describe('resolveGmailClient', () => {
   it('uses domain-wide delegation when SA key + subject are set', () => {
-    const r = resolveGmailClient(cfg({ GMAIL_SA_KEY: SA_JSON, GMAIL_IMPERSONATE_SUBJECT: 'tasks@firm.com' }));
+    const r = resolveGmailClient(cfg({ GMAIL_SERVICE_ACCOUNT_KEY: SA_JSON, GMAIL_IMPERSONATE_SUBJECT: 'tasks@firm.com' }));
     expect(r).not.toBeNull();
     expect(r!.mode).toBe('delegation');
     expect(r!.subject).toBe('tasks@firm.com');
@@ -22,14 +22,14 @@ describe('resolveGmailClient', () => {
 
   it('accepts a base64-encoded service-account key', () => {
     const b64 = Buffer.from(SA_JSON, 'utf-8').toString('base64');
-    const r = resolveGmailClient(cfg({ GMAIL_SA_KEY: b64, GMAIL_IMPERSONATE_SUBJECT: 'tasks@firm.com' }));
+    const r = resolveGmailClient(cfg({ GMAIL_SERVICE_ACCOUNT_KEY: b64, GMAIL_IMPERSONATE_SUBJECT: 'tasks@firm.com' }));
     expect(r!.mode).toBe('delegation');
   });
 
   it('prefers delegation over a refresh token when both are present', () => {
     const r = resolveGmailClient(
       cfg({
-        GMAIL_SA_KEY: SA_JSON,
+        GMAIL_SERVICE_ACCOUNT_KEY: SA_JSON,
         GMAIL_IMPERSONATE_SUBJECT: 'tasks@firm.com',
         GOOGLE_CLIENT_ID: 'cid',
         GOOGLE_CLIENT_SECRET: 'sec',
@@ -52,9 +52,9 @@ describe('resolveGmailClient', () => {
     expect(resolveGmailClient(cfg({ GMAIL_IMPERSONATE_SUBJECT: 'tasks@firm.com' }))).toBeNull();
   });
 
-  it('throws when GMAIL_SA_KEY is malformed', () => {
+  it('throws when GMAIL_SERVICE_ACCOUNT_KEY is malformed', () => {
     expect(() =>
-      resolveGmailClient(cfg({ GMAIL_SA_KEY: 'not-json', GMAIL_IMPERSONATE_SUBJECT: 'tasks@firm.com' })),
+      resolveGmailClient(cfg({ GMAIL_SERVICE_ACCOUNT_KEY: 'not-json', GMAIL_IMPERSONATE_SUBJECT: 'tasks@firm.com' })),
     ).toThrow();
   });
 });

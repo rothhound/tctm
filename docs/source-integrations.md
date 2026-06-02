@@ -28,7 +28,7 @@ Common: enable **Gmail API** + **Cloud Pub/Sub API**, and add scope `gmail.reado
 **(A) Domain-wide delegation — recommended for a shared/functional mailbox** (e.g. `tctm@svangel.com`):
 1. Create a **service account** in GCP and generate a JSON key.
 2. Workspace admin: Admin console → Security → API controls → **Domain-wide delegation** → add the service account's client ID with scope `https://www.googleapis.com/auth/gmail.readonly`.
-3. Set `GMAIL_SA_KEY` = the service-account JSON (raw, or base64 for config vars) and `GMAIL_IMPERSONATE_SUBJECT` = the mailbox to read as.
+3. Set `GMAIL_SERVICE_ACCOUNT_KEY` = the service-account JSON (raw, or base64 for config vars) and `GMAIL_IMPERSONATE_SUBJECT` = the mailbox to read as.
 - No interactive consent, no refresh token to manage, admin-controlled, survives credential changes. `userId:'me'` resolves to the impersonated mailbox.
 
 **(B) OAuth refresh token — single-user fallback:**

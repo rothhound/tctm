@@ -20,10 +20,10 @@ export interface ResolvedGmail {
  *  2. **OAuth2 refresh token** (single-user fallback): `GOOGLE_CLIENT_ID`/`SECRET` +
  *     `GMAIL_REFRESH_TOKEN`.
  *
- * Returns null if neither is configured. Throws if `GMAIL_SA_KEY` is present but malformed.
+ * Returns null if neither is configured. Throws if `GMAIL_SERVICE_ACCOUNT_KEY` is present but malformed.
  */
 export function resolveGmailClient(config: ConfigService): ResolvedGmail | null {
-  const saKeyRaw = config.get<string>('GMAIL_SA_KEY');
+  const saKeyRaw = config.get<string>('GMAIL_SERVICE_ACCOUNT_KEY');
   const subject = config.get<string>('GMAIL_IMPERSONATE_SUBJECT');
   if (saKeyRaw && subject) {
     const sa = parseServiceAccountKey(saKeyRaw);
@@ -58,10 +58,10 @@ function parseServiceAccountKey(raw: string): { client_email: string; private_ke
   try {
     json = JSON.parse(text);
   } catch {
-    throw new Error('GMAIL_SA_KEY is not valid JSON (raw or base64-encoded service-account key)');
+    throw new Error('GMAIL_SERVICE_ACCOUNT_KEY is not valid JSON (raw or base64-encoded service-account key)');
   }
   if (!json.client_email || !json.private_key) {
-    throw new Error('GMAIL_SA_KEY missing client_email/private_key');
+    throw new Error('GMAIL_SERVICE_ACCOUNT_KEY missing client_email/private_key');
   }
   return { client_email: json.client_email, private_key: json.private_key };
 }

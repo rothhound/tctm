@@ -93,7 +93,7 @@ describe('IntegrationHealthService', () => {
   });
 
   it('reports Gmail configured via domain-wide delegation', async () => {
-    const svc = await buildService({ GMAIL_SA_KEY: '{...}', GMAIL_IMPERSONATE_SUBJECT: 'tasks@firm.com' });
+    const svc = await buildService({ GMAIL_SERVICE_ACCOUNT_KEY: '{...}', GMAIL_IMPERSONATE_SUBJECT: 'tasks@firm.com' });
     const gmail = byName(await svc.checkAll(), 'Gmail');
     expect(gmail.state).toBe('configured');
     expect(gmail.detail).toContain('delegation');

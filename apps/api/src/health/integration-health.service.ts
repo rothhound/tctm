@@ -105,13 +105,13 @@ export class IntegrationHealthService implements OnApplicationBootstrap {
 
   private checkGmail(): IntegrationStatus {
     const subject = this.config.get<string>('GMAIL_IMPERSONATE_SUBJECT');
-    if (this.config.get<string>('GMAIL_SA_KEY') && subject)
+    if (this.config.get<string>('GMAIL_SERVICE_ACCOUNT_KEY') && subject)
       return { name: 'Gmail', state: 'configured', detail: `domain-wide delegation as ${subject}` };
     if (this.config.get<string>('GOOGLE_CLIENT_ID') && this.config.get<string>('GMAIL_REFRESH_TOKEN'))
       return { name: 'Gmail', state: 'configured', detail: 'OAuth refresh-token mode' };
     if (this.config.get<string>('GOOGLE_CLIENT_ID'))
-      return { name: 'Gmail', state: 'inactive', detail: 'no GMAIL_SA_KEY+SUBJECT or GMAIL_REFRESH_TOKEN — ingestion inactive' };
-    return { name: 'Gmail', state: 'not_configured', detail: 'GOOGLE_CLIENT_ID / GMAIL_SA_KEY missing' };
+      return { name: 'Gmail', state: 'inactive', detail: 'no GMAIL_SERVICE_ACCOUNT_KEY+SUBJECT or GMAIL_REFRESH_TOKEN — ingestion inactive' };
+    return { name: 'Gmail', state: 'not_configured', detail: 'GOOGLE_CLIENT_ID / GMAIL_SERVICE_ACCOUNT_KEY missing' };
   }
 
   /** Live: hit the Granola list endpoint to confirm key + base URL are good. */

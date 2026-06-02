@@ -17,16 +17,13 @@ type SignalInsert = typeof signals.$inferInsert;
 export class GmailService {
   private readonly logger = new Logger(GmailService.name);
   private gmail: gmail_v1.Gmail | null = null;
-  private readonly userEmail: string;
 
   constructor(
     @Inject(DB) private readonly db: DbType,
     @InjectQueue(QUEUES.SIGNALS_EXTRACT) private readonly extractQueue: Queue,
     private readonly config: ConfigService,
     private readonly entities: EntitiesService,
-  ) {
-    this.userEmail = config.get<string>('GMAIL_USER_EMAIL', '');
-  }
+  ) {}
 
   /**
    * Process a Pub/Sub push notification — fetch history since last known historyId.
@@ -229,7 +226,7 @@ export class GmailService {
     }
     if (!resolved) {
       this.logger.warn(
-        'Gmail not configured — set GMAIL_SA_KEY + GMAIL_IMPERSONATE_SUBJECT (domain-wide delegation) or GOOGLE_CLIENT_ID/SECRET + GMAIL_REFRESH_TOKEN — ingestion disabled',
+        'Gmail not configured — set GMAIL_SERVICE_ACCOUNT_KEY + GMAIL_IMPERSONATE_SUBJECT (domain-wide delegation) or GOOGLE_CLIENT_ID/SECRET + GMAIL_REFRESH_TOKEN — ingestion disabled',
       );
       return null;
     }
