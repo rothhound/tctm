@@ -45,9 +45,19 @@ describe('NotionController', () => {
     controller = module.get<NotionController>(NotionController);
   });
 
-  it('returns ok for events without type', async () => {
-    const result = await controller.handleWebhook({} as any, undefined, {});
+  it('returns ok for an authenticated event without a handled type', async () => {
+    const rawBody = '{}';
+    const sig = createHmac('sha256', verificationToken).update(rawBody).digest('hex');
+    const result = await controller.handleWebhook({ rawBody } as any, sig, {});
     expect(result).toEqual({ ok: true });
+  });
+
+  it('rejects a real event with no signature header (fail-closed)', async () => {
+    const body = { type: 'page.content_updated', page: { id: 'page-1' } };
+    const rawBody = JSON.stringify(body);
+    await expect(
+      controller.handleWebhook({ rawBody } as any, undefined, body),
+    ).rejects.toThrow(HttpException);
   });
 
   it('returns ok for the verification handshake (verification_token, no type)', async () => {

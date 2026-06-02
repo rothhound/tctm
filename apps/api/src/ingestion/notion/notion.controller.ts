@@ -40,11 +40,21 @@ export class NotionController {
       return { ok: true };
     }
 
-    // Verify the HMAC signature on real events.
-    const rawBodyBuf = (req as any).rawBody;
-    if (rawBodyBuf && signature) {
-      const rawBody = typeof rawBodyBuf === 'string' ? rawBodyBuf : rawBodyBuf.toString('utf-8');
-      this.verifySignature(signature, rawBody);
+    // Every real (non-handshake) event MUST be HMAC-verified. Fail closed.
+    const secret = this.config.get<string>('NOTION_VERIFICATION_TOKEN');
+    if (!secret) {
+      if (process.env.NODE_ENV === 'production') {
+        this.logger.error('NOTION_VERIFICATION_TOKEN not set — rejecting unverifiable Notion webhook');
+        throw new HttpException('Notion webhook verification not configured', HttpStatus.UNAUTHORIZED);
+      }
+      this.logger.warn('NOTION_VERIFICATION_TOKEN not set — accepting Notion webhook UNVERIFIED (dev only)');
+    } else {
+      const rawBodyBuf = (req as any).rawBody;
+      const rawBody = typeof rawBodyBuf === 'string' ? rawBodyBuf : rawBodyBuf?.toString('utf-8');
+      if (!signature || !rawBody) {
+        throw new HttpException('Missing Notion signature', HttpStatus.UNAUTHORIZED);
+      }
+      this.verifySignature(signature, rawBody, secret);
     }
 
     if (!event.type) return { ok: true };
@@ -58,10 +68,7 @@ export class NotionController {
     return { ok: true };
   }
 
-  private verifySignature(signature: string, rawBody: string): void {
-    const secret = this.config.get<string>('NOTION_VERIFICATION_TOKEN');
-    if (!secret) return; // Skip verification if not configured
-
+  private verifySignature(signature: string, rawBody: string, secret: string): void {
     const expected = createHmac('sha256', secret).update(rawBody).digest('hex');
     const expectedBuf = Buffer.from(expected);
     const receivedBuf = Buffer.from(signature.replace('v0=', ''));
