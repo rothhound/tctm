@@ -43,11 +43,18 @@ interface ListNotesResponse {
 const PAGE_SIZE = 30; // Granola max
 const MAX_PAGES = 10; // safety cap per poll (≤300 notes); a 30s poll never approaches this
 
+/** Parse the comma-separated GRANOLA_FOLDER_IDS env value into a clean list (whitespace-tolerant). */
+export function parseGranolaFolderIds(raw?: string): string[] {
+  return (raw ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+}
+
 @Injectable()
 export class GranolaService {
   private readonly logger = new Logger(GranolaService.name);
   private readonly apiKey: string;
   private readonly apiBase: string;
+  /** Granola folders (private or shared) to poll. Empty → polling is skipped (no folder to track). */
+  private readonly folderIds: string[];
 
   constructor(
     @Inject(DB) private readonly db: DbType,
@@ -56,11 +63,19 @@ export class GranolaService {
   ) {
     this.apiKey = config.get<string>('GRANOLA_API_KEY', '');
     this.apiBase = config.get<string>('GRANOLA_API_BASE', 'https://public-api.granola.ai/v1');
+    this.folderIds = parseGranolaFolderIds(config.get<string>('GRANOLA_FOLDER_IDS', ''));
+    if (this.folderIds.length) {
+      this.logger.log(`Granola polling scoped to ${this.folderIds.length} folder(s): ${this.folderIds.join(', ')}`);
+    }
   }
 
   async poll(): Promise<void> {
     if (!this.apiKey) {
       this.logger.debug('Granola API key not configured — skipping poll');
+      return;
+    }
+    if (this.folderIds.length === 0) {
+      this.logger.warn('Granola poll skipped — no folder to track (set GRANOLA_FOLDER_IDS)');
       return;
     }
 
@@ -77,13 +92,18 @@ export class GranolaService {
       return;
     }
 
+    const scope = this.folderIds.length ? `folder(s) ${this.folderIds.join(', ')}` : 'all folders';
+    this.logger.log(`Granola poll: ${notes.length} note(s) updated since ${since.toISOString()} (${scope})`);
+
+    let created = 0;
     for (const note of notes) {
       try {
-        await this.processNote(note);
+        if (await this.processNote(note)) created++;
       } catch (err: any) {
         this.logger.error(`Granola note ${note.id} failed: ${err.message}`);
       }
     }
+    if (notes.length > 0) this.logger.log(`Granola poll: ${created} new signal(s) queued for extraction`);
 
     // Update poll state
     await this.db
@@ -118,8 +138,25 @@ export class GranolaService {
     return (await response.json()) as T;
   }
 
-  /** List notes updated since `since`, following cursor pagination. */
+  /**
+   * List notes updated since `since` — one query per configured folder, deduped by note id (a note
+   * can live in more than one folder). A folder that fails (bad/inaccessible id, transient error) is
+   * logged and skipped so the remaining folders still sync.
+   */
   private async fetchNotes(since: Date): Promise<GranolaNoteSummary[]> {
+    const byId = new Map<string, GranolaNoteSummary>();
+    for (const folderId of this.folderIds) {
+      try {
+        for (const note of await this.fetchFolderNotes(since, folderId)) byId.set(note.id, note);
+      } catch (err: any) {
+        this.logger.warn(`Granola folder ${folderId} fetch failed: ${err.message} — skipping it this poll`);
+      }
+    }
+    return [...byId.values()];
+  }
+
+  /** Fetch one folder's notes, following cursor pagination. */
+  private async fetchFolderNotes(since: Date, folderId: string): Promise<GranolaNoteSummary[]> {
     const all: GranolaNoteSummary[] = [];
     let cursor: string | null = null;
 
@@ -127,6 +164,7 @@ export class GranolaService {
       const params = new URLSearchParams({
         updated_after: since.toISOString(),
         page_size: String(PAGE_SIZE),
+        folder_id: folderId,
       });
       if (cursor) params.set('cursor', cursor);
 
@@ -144,10 +182,10 @@ export class GranolaService {
    * Each Granola note becomes one signal built from its AI summary (`summary_text`).
    * The extractor then pulls actionable tasks from it. Deduped per note id.
    */
-  private async processNote(summary: GranolaNoteSummary): Promise<void> {
+  private async processNote(summary: GranolaNoteSummary): Promise<boolean> {
     const detail = await this.get<GranolaNoteDetail>(`/notes/${summary.id}`);
     const body = (detail.summary_text || detail.summary_markdown || '').trim();
-    if (!body) return; // no summary yet → nothing to extract
+    if (!body) return false; // no summary yet → nothing to extract
 
     const signal: SignalInsert = {
       source: 'granola',
@@ -173,7 +211,9 @@ export class GranolaService {
 
     if (inserted.length > 0) {
       await this.extractQueue.add('extract', { signalId: inserted[0].id });
+      return true;
     }
+    return false; // deduped — already ingested this note
   }
 }
 

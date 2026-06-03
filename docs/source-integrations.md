@@ -326,7 +326,12 @@ if (!timingSafeEqual(Buffer.from(`v0=${expected}`), Buffer.from(signature))) {
 
 ### Mention detection
 
-> ⚠️ **Not yet implemented (post-MVP).** The current `notion.service.ts` detects mentions/assignments from the webhook **payload only** (title + `rich_text`/`people` properties + comment `rich_text`). The API-fetch below is the target design and needs the Internal Integration Secret; tracked in CLAUDE.md → Pending Work.
+> ✅ **Implemented.** Notion webhooks carry only ids/metadata (`entity.id`, `data.page_id`), so `notion.service.ts`
+> fetches the real content from the REST API using `NOTION_API_KEY` (Internal Integration Secret, **Read content**
+> + **Read comments** capabilities): `comment.created` → `GET /v1/comments?block_id=…` (match `entity.id`);
+> `page.*` → `GET /v1/pages/:id` + `GET /v1/blocks/:id/children`. It then scans properties + body blocks for the
+> partner's @mention/assignment. Nested blocks aren't recursed yet; pages are captured only when you're
+> mentioned/assigned.
 
 Notion webhooks deliver event metadata, not full content. After receiving, fetch the page:
 
@@ -411,7 +416,11 @@ async processNote(summary: GranolaNoteSummary) {
 }
 ```
 
-The `folder_id` query param (with `GET /v1/folders` to list folders) is available if scoping to specific workspace folders is needed later.
+**Folder scoping (required):** set `GRANOLA_FOLDER_IDS` to the folder(s) to poll (private or shared),
+**comma-separated** (e.g. `fld_a,fld_b`) — the service runs one `GET /v1/notes?folder_id=…` query per folder
+and dedups by note id. A folder that fails (bad/inaccessible id) is logged and skipped so the rest still
+sync. **Empty disables Granola polling entirely** (logged once at boot). Discover ids from the Granola
+dashboard, or `GET /v1/folders` with the bearer key (`{ folders: [{ id, name }] }`).
 
 ### Failure modes
 

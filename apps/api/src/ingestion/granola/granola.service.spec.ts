@@ -55,7 +55,10 @@ describe('GranolaService', () => {
         { provide: getQueueToken(QUEUES.SIGNALS_EXTRACT), useValue: mockQueue },
         {
           provide: ConfigService,
-          useValue: { get: (k: string, def?: any) => (k === 'GRANOLA_API_KEY' ? 'test-key' : def ?? '') },
+          useValue: {
+            get: (k: string, def?: any) =>
+              k === 'GRANOLA_API_KEY' ? 'test-key' : k === 'GRANOLA_FOLDER_IDS' ? 'fld_default' : def ?? '',
+          },
         },
       ],
     }).compile();
@@ -84,6 +87,74 @@ describe('GranolaService', () => {
     expect(listUrl).toContain('public-api.granola.ai/v1/notes');
     expect(listUrl).toContain('updated_after=');
     expect(listUrl).toContain('page_size=30');
+    expect(listUrl).toContain('folder_id=fld_default'); // always folder-scoped now
+  });
+
+  it('skips polling when no folder is configured', async () => {
+    const module = await Test.createTestingModule({
+      providers: [
+        GranolaService,
+        { provide: DB, useValue: mockDb },
+        { provide: getQueueToken(QUEUES.SIGNALS_EXTRACT), useValue: mockQueue },
+        { provide: ConfigService, useValue: { get: (k: string, def?: any) => (k === 'GRANOLA_API_KEY' ? 'test-key' : def ?? '') } },
+      ],
+    }).compile();
+
+    const svc = module.get<GranolaService>(GranolaService);
+    await svc.poll();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  // Builds a service scoped to the given comma-separated folder ids.
+  async function makeScoped(folderIds: string): Promise<GranolaService> {
+    const module = await Test.createTestingModule({
+      providers: [
+        GranolaService,
+        { provide: DB, useValue: mockDb },
+        { provide: getQueueToken(QUEUES.SIGNALS_EXTRACT), useValue: mockQueue },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: (k: string, def?: any) =>
+              k === 'GRANOLA_API_KEY' ? 'test-key' : k === 'GRANOLA_FOLDER_IDS' ? folderIds : def ?? '',
+          },
+        },
+      ],
+    }).compile();
+    return module.get<GranolaService>(GranolaService);
+  }
+
+  it('polls each folder in a comma-separated GRANOLA_FOLDER_IDS and dedups notes', async () => {
+    const scoped = await makeScoped('fld_a, fld_b');
+
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes('/notes/')) return Promise.resolve(noteResponse({ ...noteSummary, summary_text: 'summary' }));
+      if (url.includes('folder_id=fld_a')) return Promise.resolve(listResponse([{ ...noteSummary, id: 'not_a' }]));
+      if (url.includes('folder_id=fld_b')) return Promise.resolve(listResponse([{ ...noteSummary, id: 'not_b' }]));
+      return Promise.resolve(listResponse([]));
+    });
+
+    await scoped.poll();
+
+    const listUrls = mockFetch.mock.calls.map((c) => c[0] as string).filter((u) => !u.includes('/notes/'));
+    expect(listUrls.some((u) => u.includes('folder_id=fld_a'))).toBe(true);
+    expect(listUrls.some((u) => u.includes('folder_id=fld_b'))).toBe(true);
+    expect(mockQueue.add).toHaveBeenCalledTimes(2); // two distinct notes, one per folder
+  });
+
+  it('skips a failing folder and still syncs the others', async () => {
+    const scoped = await makeScoped('fld_bad, fld_good');
+
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes('/notes/')) return Promise.resolve(noteResponse({ ...noteSummary, summary_text: 'summary' }));
+      if (url.includes('folder_id=fld_bad')) return Promise.resolve({ ok: false, status: 404, statusText: 'Not Found' });
+      if (url.includes('folder_id=fld_good')) return Promise.resolve(listResponse([{ ...noteSummary, id: 'not_good' }]));
+      return Promise.resolve(listResponse([]));
+    });
+
+    await scoped.poll(); // must not throw
+
+    expect(mockQueue.add).toHaveBeenCalledTimes(1); // only the good folder's note ingested
   });
 
   it('skips a note that has no summary yet', async () => {

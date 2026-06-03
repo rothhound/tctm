@@ -76,6 +76,15 @@ describe('NotionController', () => {
     expect(result).toEqual({ ok: true });
   });
 
+  it('accepts Notion\'s sha256= signature prefix', async () => {
+    const body = { type: 'page.content_updated', page: { id: 'page-1' } };
+    const rawBody = JSON.stringify(body);
+    const sig = `sha256=${createHmac('sha256', verificationToken).update(rawBody).digest('hex')}`;
+
+    const result = await controller.handleWebhook({ rawBody } as any, sig, body);
+    expect(result).toEqual({ ok: true });
+  });
+
   it('rejects invalid HMAC signature', async () => {
     const body = { type: 'page.content_updated', page: { id: 'page-1' } };
     const rawBody = JSON.stringify(body);

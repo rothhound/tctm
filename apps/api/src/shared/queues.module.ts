@@ -10,7 +10,7 @@ export const QUEUES = {
   GRANOLA_POLL: 'granola.poll',
 } as const;
 
-function redisConnection(config: ConfigService) {
+export function redisConnection(config: ConfigService) {
   const url = config.get<string>('REDIS_URL');
   if (url) {
     // Heroku Redis provides REDIS_URL (rediss:// for TLS)

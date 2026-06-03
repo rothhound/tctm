@@ -267,9 +267,15 @@ export function ActivePage() {
     updateTask({ id: taskId, priority });
   }, [updateTask, updateTaskLocally]);
 
+  // Kanban needs the width 4 columns can't get inside the shell's centered column
+  // (AppShell main is lg:w-[90%] xl:w-[80%] 2xl:w-[70%], mx-auto). Reclaim the empty
+  // side gutters for the board only — list + reading pages stay at their readable width.
+  // Values undershoot the gutter (gutter/main-width per tier) so the board never overflows.
+  const kanbanBreakout = viewMode === 'kanban' ? 'lg:-mx-[4%] xl:-mx-[10%] 2xl:-mx-[18%]' : '';
+
   return (
     <>
-      <div className="flex flex-col flex-1 min-h-0 min-w-0">
+      <div className={`flex flex-col flex-1 min-h-0 min-w-0 ${kanbanBreakout}`}>
         <div className="flex items-center justify-between mb-1 md:mb-4 px-4 md:px-0 shrink-0">
           <h1 className="text-lg font-semibold text-[var(--color-text)]">Active</h1>
           <ViewToggle mode={viewMode} onChange={setViewMode} />
