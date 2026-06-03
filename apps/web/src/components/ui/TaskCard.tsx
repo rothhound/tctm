@@ -194,6 +194,16 @@ function MetaRow({ task, flavor, onDueDateChange }: { task: TaskDto; flavor: Tas
     );
   }
 
+  if (flavor === 'filtered') {
+    const reason = task.extraction?.judge?.reason;
+    return (
+      <div className="flex items-start gap-1.5 text-[10px] text-[var(--color-text-muted)]">
+        {task.source && <span className="shrink-0 mt-px"><SourceIcon source={task.source} size={10} /></span>}
+        <span className="leading-snug">{reason ? `Filtered — ${reason}` : 'Filtered by the assistant'}</span>
+      </div>
+    );
+  }
+
   // reported
   const reasonLabel = task.reportReason
     ? task.reportReason.startsWith('other: ')

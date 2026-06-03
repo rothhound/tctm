@@ -3,6 +3,7 @@ export { SnoozedBanner, ArchivedBanner } from './Banners';
 export { ActionChip } from './ActionChip';
 export { PanelFooter } from './PanelFooter';
 export { ReportedHero } from './ReportedHero';
+export { AgentScores } from './AgentScores';
 export { PrioritySelector } from './PrioritySelector';
 export { DueDateChip } from './DueDateChip';
 export { ReminderPicker } from './ReminderPicker';

@@ -68,6 +68,21 @@ export function useAllTasks() {
     return () => clearTimeout(refetchTimer.current);
   }, [mutationKey]);
 
+  // Live-inbox polling: revalidate the Active list every 30s while the tab is visible, and
+  // immediately when the tab regains focus — so ingested tasks appear without a manual refresh.
+  useEffect(() => {
+    const POLL_MS = 30_000;
+    const refresh = () => {
+      if (document.visibilityState === 'visible') setRefetchKey((k) => k + 1);
+    };
+    const id = setInterval(refresh, POLL_MS);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, []);
+
   const loadMore = useCallback(async () => {
     if (isLoading || !hasMore) return;
 

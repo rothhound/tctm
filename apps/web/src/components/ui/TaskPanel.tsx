@@ -27,6 +27,7 @@ import {
   SnoozedBanner,
   ArchivedBanner,
   ReportedHero,
+  AgentScores,
   PrioritySelector,
   DueDateChip,
   ReminderPicker,
@@ -67,6 +68,7 @@ export function TaskPanel({ taskId, onClose, onTaskUpdated }: TaskPanelProps) {
   // Counter props — incremented to trigger child component actions
   const [subtaskFocusTrigger, setSubtaskFocusTrigger] = useState(0);
   const [reminderOpenTrigger, setReminderOpenTrigger] = useState(0);
+  const [showScores, setShowScores] = useState(false);
 
   // Sync drafts when task loads
   useEffect(() => {
@@ -169,8 +171,25 @@ export function TaskPanel({ taskId, onClose, onTaskUpdated }: TaskPanelProps) {
           <div className="shrink-0 hidden md:flex">
             {task.source && <SourceIcon source={task.source} size={22} />}
           </div>
-          <div className="flex-1 min-w-0">
-            {task.source && <span className="md:hidden inline-flex"><SourceIcon source={task.source} size={20} /></span>}
+          <div className="flex-1 min-w-0 flex items-center gap-2">
+            {task.source && <span className="md:hidden inline-flex shrink-0"><SourceIcon source={task.source} size={20} /></span>}
+            {/* Source provenance — to the right of the icon. Link for slack/granola/notion; sender email for gmail. */}
+            {task.sourceMeta && (task.source === 'gmail' ? task.sourceMeta.sentBy?.email : task.sourceMeta.url) && (
+              <span className="text-xs text-[var(--color-text-muted)] truncate">
+                {task.source === 'gmail' ? (
+                  <>Sent by {task.sourceMeta.sentBy?.email}</>
+                ) : (
+                  <a
+                    href={task.sourceMeta.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hover:text-[var(--color-text)] hover:underline underline-offset-2"
+                  >
+                    View in {task.source ? task.source.charAt(0).toUpperCase() + task.source.slice(1) : 'source'} ↗
+                  </a>
+                )}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1">
             <ReminderPicker task={task} onSnooze={handleSnooze} onClearReminder={handleWakeNow} openTrigger={reminderOpenTrigger} />
@@ -213,21 +232,18 @@ export function TaskPanel({ taskId, onClose, onTaskUpdated }: TaskPanelProps) {
             )}
           </div>
 
-          {/* Source provenance — link for slack/granola/notion; sender email for gmail (dropbox) */}
-          {task.sourceMeta && (task.source === 'gmail' ? task.sourceMeta.sentBy?.email : task.sourceMeta.url) && (
-            <div className="text-xs text-[var(--color-text-muted)] -mt-2">
-              {task.source === 'gmail' ? (
-                <span>Sent by {task.sourceMeta.sentBy?.email}</span>
-              ) : (
-                <a
-                  href={task.sourceMeta.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="hover:text-[var(--color-text)] underline-offset-2 hover:underline"
-                >
-                  View in {task.source ? task.source.charAt(0).toUpperCase() + task.source.slice(1) : 'source'} ↗
-                </a>
-              )}
+          {/* Agent scores — revealed on click for any task (reported tasks already show the hero) */}
+          {task.extraction && !isReported && (
+            <div>
+              <button
+                onClick={() => setShowScores((s) => !s)}
+                className="inline-flex items-center gap-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
+                aria-expanded={showScores}
+              >
+                <span className={`transition-transform ${showScores ? 'rotate-180' : ''}`}><IconChevronDown size={14} /></span>
+                Agent scores
+              </button>
+              {showScores && <AgentScores extraction={task.extraction} signalCount={task.sourceSignalIds?.length ?? 0} />}
             </div>
           )}
 

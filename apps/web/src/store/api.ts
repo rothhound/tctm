@@ -74,6 +74,10 @@ const baseQueryWithReauth: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQue
 export const api = createApi({
   baseQuery: baseQueryWithReauth,
   tagTypes: ['Tasks', 'TaskCounts', 'TaskNotes', 'AuditLog', 'SourceConfig', 'Entities', 'Metrics', 'Prompts'],
+  // Inbox feel: revalidate when the tab regains focus or the network reconnects (paired with
+  // setupListeners in store.ts). The Active list also polls on an interval (see useAllTasks).
+  refetchOnFocus: true,
+  refetchOnReconnect: true,
   endpoints: (builder) => ({
     // Auth — Google ID token exchange
     loginWithGoogle: builder.mutation<LoginResponse, { idToken: string }>({
