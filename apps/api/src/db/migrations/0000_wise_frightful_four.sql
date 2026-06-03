@@ -3,9 +3,9 @@ CREATE TYPE "public"."feedback_action" AS ENUM('accepted', 'edited', 'dismissed'
 CREATE TYPE "public"."prompt_purpose" AS ENUM('extract', 'judge', 'snooze', 'resolve');--> statement-breakpoint
 CREATE TYPE "public"."signal_status" AS ENUM('pending', 'extracted', 'no_task', 'failed', 'skipped');--> statement-breakpoint
 CREATE TYPE "public"."source" AS ENUM('gmail', 'slack', 'notion', 'granola');--> statement-breakpoint
-CREATE TYPE "public"."task_bucket" AS ENUM('inbox', 'review');--> statement-breakpoint
 CREATE TYPE "public"."task_priority" AS ENUM('high', 'mid', 'low', 'none');--> statement-breakpoint
 CREATE TYPE "public"."task_status" AS ENUM('pending', 'done');--> statement-breakpoint
+CREATE TYPE "public"."task_triage" AS ENUM('keep', 'review', 'dismissed');--> statement-breakpoint
 CREATE TABLE "entities" (
 	"id" varchar(8) PRIMARY KEY NOT NULL,
 	"type" "entity_type" NOT NULL,
@@ -126,7 +126,6 @@ CREATE TABLE "tasks" (
 	"title" text NOT NULL,
 	"description" text,
 	"status" "task_status" DEFAULT 'pending' NOT NULL,
-	"bucket" "task_bucket" DEFAULT 'inbox' NOT NULL,
 	"priority" "task_priority" DEFAULT 'none' NOT NULL,
 	"source" text,
 	"due_at" timestamp with time zone,
@@ -138,6 +137,7 @@ CREATE TABLE "tasks" (
 	"waiting_on_entity_ids" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"extraction" jsonb,
 	"auto_created" boolean DEFAULT false NOT NULL,
+	"triage" "task_triage",
 	"dedup_hash" text,
 	"archived" boolean DEFAULT false NOT NULL,
 	"archived_at" timestamp with time zone,
@@ -171,10 +171,10 @@ CREATE INDEX "signals_created_at_idx" ON "signals" USING btree ("created_at");--
 CREATE INDEX "task_notes_task_id_idx" ON "task_notes" USING btree ("task_id");--> statement-breakpoint
 CREATE INDEX "task_notes_created_at_idx" ON "task_notes" USING btree ("created_at");--> statement-breakpoint
 CREATE INDEX "tasks_status_idx" ON "tasks" USING btree ("status");--> statement-breakpoint
-CREATE INDEX "tasks_bucket_idx" ON "tasks" USING btree ("bucket");--> statement-breakpoint
 CREATE INDEX "tasks_priority_idx" ON "tasks" USING btree ("priority");--> statement-breakpoint
 CREATE INDEX "tasks_due_at_idx" ON "tasks" USING btree ("due_at");--> statement-breakpoint
 CREATE INDEX "tasks_dedup_hash_idx" ON "tasks" USING btree ("dedup_hash");--> statement-breakpoint
 CREATE INDEX "tasks_parent_task_id_idx" ON "tasks" USING btree ("parent_task_id");--> statement-breakpoint
 CREATE INDEX "tasks_archived_idx" ON "tasks" USING btree ("archived");--> statement-breakpoint
-CREATE INDEX "tasks_reported_idx" ON "tasks" USING btree ("reported");
+CREATE INDEX "tasks_reported_idx" ON "tasks" USING btree ("reported");--> statement-breakpoint
+CREATE INDEX "tasks_triage_idx" ON "tasks" USING btree ("triage");

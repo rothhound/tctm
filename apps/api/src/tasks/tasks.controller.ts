@@ -7,13 +7,12 @@ export class TasksController {
 
   @Get()
   list(
-    @Query('bucket') bucket?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
     const p = Math.max(1, parseInt(page ?? '1', 10) || 1);
     const l = Math.min(100, Math.max(1, parseInt(limit ?? '25', 10) || 25));
-    return this.tasks.listByBucket(bucket ?? 'inbox', p, l);
+    return this.tasks.listActive(p, l);
   }
 
   @Get('counts')
@@ -24,6 +23,11 @@ export class TasksController {
   @Get('archived')
   archived() {
     return this.tasks.listArchived();
+  }
+
+  @Get('filtered')
+  filtered() {
+    return this.tasks.listFiltered();
   }
 
   @Get('reported')
@@ -75,6 +79,11 @@ export class TasksController {
   @Post(':id/unarchive')
   unarchive(@Param('id') id: string) {
     return this.tasks.unarchive(id);
+  }
+
+  @Post(':id/restore')
+  restore(@Param('id') id: string) {
+    return this.tasks.restore(id);
   }
 
   @Post(':id/report')

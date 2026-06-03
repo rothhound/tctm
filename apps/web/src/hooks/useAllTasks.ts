@@ -3,12 +3,12 @@ import type { TaskDto } from '@tctm/shared';
 import { api } from '../store/api';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 
-const BUCKETS = ['inbox', 'review'] as const;
 const PAGE_SIZE = 25;
 
 /**
- * Fetches tasks from all buckets with client-side accumulation.
+ * Fetches the Active queue (keep + review, not agent-dismissed) with client-side accumulation.
  * Supports: initial load, loadMore (pagination), updateLocal (instant UI), and full refetch.
+ * Agent-dismissed tasks live in the Filtered view, not here.
  */
 export function useAllTasks() {
   const dispatch = useAppDispatch();
@@ -16,37 +16,22 @@ export function useAllTasks() {
   const [isLoading, setIsLoading] = useState(true);
   const [hasMore, setHasMore] = useState(true);
   const [refetchKey, setRefetchKey] = useState(0);
-  const pageRef = useRef<Record<string, number>>(
-    Object.fromEntries(BUCKETS.map((b) => [b, 0])),
-  );
-  const bucketHasMore = useRef<Record<string, boolean>>(
-    Object.fromEntries(BUCKETS.map((b) => [b, true])),
-  );
+  const pageRef = useRef(0);
   const initialLoaded = useRef(false);
 
-  // Fetch all buckets
+  // Refetch everything loaded so far (collapse accumulated pages back into one request).
   const fetchAll = useCallback(async () => {
     setIsLoading(true);
-    const allTasks: TaskDto[] = [];
-
-    for (const bucket of BUCKETS) {
-      const maxPage = Math.max(pageRef.current[bucket] || 1, 1);
-      try {
-        const result = await dispatch(
-          api.endpoints.getTasks.initiate(
-            { bucket, page: 1, limit: PAGE_SIZE * maxPage },
-            { forceRefetch: true },
-          ),
-        ).unwrap();
-        allTasks.push(...result.data);
-        bucketHasMore.current[bucket] = result.hasMore;
-      } catch {
-        bucketHasMore.current[bucket] = false;
-      }
+    const maxPage = Math.max(pageRef.current, 1);
+    try {
+      const result = await dispatch(
+        api.endpoints.getTasks.initiate({ page: 1, limit: PAGE_SIZE * maxPage }, { forceRefetch: true }),
+      ).unwrap();
+      setAccumulated(dedup(result.data));
+      setHasMore(result.hasMore);
+    } catch {
+      setHasMore(false);
     }
-
-    setAccumulated(dedup(allTasks));
-    setHasMore(Object.values(bucketHasMore.current).some(Boolean));
     setIsLoading(false);
   }, [dispatch]);
 
@@ -54,8 +39,7 @@ export function useAllTasks() {
   useEffect(() => {
     if (initialLoaded.current) return;
     initialLoaded.current = true;
-    // Reset pages for initial
-    for (const b of BUCKETS) pageRef.current[b] = 1;
+    pageRef.current = 1;
     fetchAll();
   }, [fetchAll]);
 
@@ -85,39 +69,27 @@ export function useAllTasks() {
   }, [mutationKey]);
 
   const loadMore = useCallback(async () => {
-    if (isLoading) return;
+    if (isLoading || !hasMore) return;
 
-    const bucket = BUCKETS.find((b) => bucketHasMore.current[b]);
-    if (!bucket) {
-      setHasMore(false);
-      return;
-    }
-
-    const nextPage = pageRef.current[bucket] + 1;
+    const nextPage = pageRef.current + 1;
     setIsLoading(true);
 
     try {
       const result = await dispatch(
-        api.endpoints.getTasks.initiate({ bucket, page: nextPage, limit: PAGE_SIZE }),
+        api.endpoints.getTasks.initiate({ page: nextPage, limit: PAGE_SIZE }),
       ).unwrap();
 
-      pageRef.current[bucket] = nextPage;
-      bucketHasMore.current[bucket] = result.hasMore;
-
+      pageRef.current = nextPage;
       setAccumulated((prev) => dedup([...prev, ...result.data]));
-      setHasMore(Object.values(bucketHasMore.current).some(Boolean));
+      setHasMore(result.hasMore);
     } catch {
-      bucketHasMore.current[bucket] = false;
-      setHasMore(Object.values(bucketHasMore.current).some(Boolean));
+      setHasMore(false);
     }
 
     setIsLoading(false);
-  }, [dispatch, isLoading]);
+  }, [dispatch, isLoading, hasMore]);
 
-  /**
-   * Instantly update a task in the local list (optimistic UI).
-   * Call this after a mutation to avoid waiting for refetch.
-   */
+  /** Instantly update a task in the local list (optimistic UI). */
   const updateTaskLocally = useCallback((taskId: string, updates: Partial<TaskDto>) => {
     skipNextRefetch.current = true;
     setAccumulated((prev) =>
@@ -125,9 +97,7 @@ export function useAllTasks() {
     );
   }, []);
 
-  /**
-   * Remove a task from the local list (after archive/report/complete).
-   */
+  /** Remove a task from the local list (after archive/report/complete). */
   const removeTaskLocally = useCallback((taskId: string) => {
     setAccumulated((prev) => prev.filter((t) => t.id !== taskId));
   }, []);

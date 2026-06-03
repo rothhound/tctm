@@ -5,10 +5,8 @@ import { tasks } from '../db/schema';
 import { NotificationsService } from '../notifications/notifications.service';
 
 export interface DailySummary {
-  today: number;
-  waitingOn: number;
-  inbox: number;
-  review: number;
+  active: number;   // keep + review + manual (NULL) — the Active queue
+  filtered: number; // agent-dismissed (noise)
   message: string;
 }
 
@@ -23,32 +21,28 @@ export class BriefService {
 
   async composeSummary(): Promise<DailySummary> {
     const rows = await this.db
-      .select({ bucket: tasks.bucket, count: count() })
+      .select({ triage: tasks.triage, count: count() })
       .from(tasks)
-      .where(and(eq(tasks.status, 'pending'), eq(tasks.archived, false)))
-      .groupBy(tasks.bucket);
+      .where(and(eq(tasks.status, 'pending'), eq(tasks.archived, false), eq(tasks.reported, false)))
+      .groupBy(tasks.triage);
 
-    const counts: Record<string, number> = {};
+    let active = 0;
+    let filtered = 0;
     for (const row of rows) {
-      counts[row.bucket] = Number(row.count);
+      const n = Number(row.count);
+      if (row.triage === 'dismissed') filtered += n;
+      else active += n; // keep, review, or NULL (manual) all surface in Active
     }
 
-    const today = counts['today'] ?? 0;
-    const waitingOn = counts['waiting_on'] ?? 0;
-    const inbox = counts['inbox'] ?? 0;
-    const review = counts['review'] ?? 0;
-
     const parts: string[] = [];
-    if (today > 0) parts.push(`${today} must-do today`);
-    if (waitingOn > 0) parts.push(`${waitingOn} waiting on responses`);
-    if (inbox > 0) parts.push(`${inbox} new in inbox`);
-    if (review > 0) parts.push(`${review} need review`);
+    if (active > 0) parts.push(`${active} task${active === 1 ? '' : 's'} in your queue`);
+    if (filtered > 0) parts.push(`${filtered} filtered as noise`);
 
     const message = parts.length > 0
       ? `Good morning. ${parts.join(', ')}.`
       : 'Good morning. All clear — nothing pending.';
 
-    return { today, waitingOn, inbox, review, message };
+    return { active, filtered, message };
   }
 
   async sendDailyBrief(): Promise<void> {
@@ -57,7 +51,7 @@ export class BriefService {
     await this.notifications.sendPush({
       title: 'Daily Brief',
       body: summary.message,
-      url: '/today',
+      url: '/active',
     });
 
     this.logger.log(`Daily brief sent: ${summary.message}`);

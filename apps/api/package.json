@@ -19,7 +19,8 @@
     "granola:sync": "tsx src/granola-sync.ts",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
-    "db:setup": "npm run db:drop && npm run db:create && npm run db:migrate && npm run db:seed && npm run db:seed:tasks"
+    "db:setup": "npm run db:drop && npm run db:create && npm run db:migrate && npm run db:seed && npm run db:seed:tasks",
+    "db:reset": "npm run db:drop && npm run db:create && npm run db:migrate && npm run db:seed"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.97.1",

@@ -62,6 +62,18 @@ export function SideNav() {
           Archived
         </NavLink>
         <NavLink
+          to="/filtered"
+          className={({ isActive }) =>
+            `flex items-center px-3 py-2 rounded-md text-sm transition-colors ${
+              isActive
+                ? 'bg-[var(--color-surface)] text-[var(--color-text)] font-medium shadow-sm'
+                : 'text-[var(--color-text-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-text)]'
+            }`
+          }
+        >
+          Filtered
+        </NavLink>
+        <NavLink
           to="/reported"
           className={({ isActive }) =>
             `flex items-center px-3 py-2 rounded-md text-sm transition-colors ${

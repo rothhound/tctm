@@ -13,6 +13,7 @@ export function BottomNav() {
           { to: '/done', label: 'Done' },
           { to: '/snoozed', label: 'Snoozed' },
           { to: '/archive', label: 'Archived' },
+          { to: '/filtered', label: 'Filtered' },
           { to: '/reported', label: 'Reported' },
         ].map(({ to, label }) => (
           <NavLink

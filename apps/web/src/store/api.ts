@@ -80,11 +80,11 @@ export const api = createApi({
       query: (body) => ({ url: 'auth/google', method: 'POST', body }),
     }),
 
-    // Tasks — paginated by bucket
-    getTasks: builder.query<PaginatedResponse<TaskDto>, { bucket?: string; page?: number; limit?: number }>({
-      query: ({ bucket, page = 1, limit = 25 }) => ({
+    // Tasks — the Active queue (keep + review, not agent-dismissed), paginated
+    getTasks: builder.query<PaginatedResponse<TaskDto>, { page?: number; limit?: number }>({
+      query: ({ page = 1, limit = 25 } = {}) => ({
         url: 'tasks',
-        params: { ...(bucket ? { bucket } : {}), page, limit },
+        params: { page, limit },
       }),
       providesTags: ['Tasks'],
     }),
@@ -235,6 +235,16 @@ export const api = createApi({
       invalidatesTags: ['Tasks', 'TaskCounts'],
     }),
 
+    // Filtered (agent-dismissed)
+    getFilteredTasks: builder.query<TaskDto[], void>({
+      query: () => 'tasks/filtered',
+      providesTags: ['Tasks'],
+    }),
+    restoreTask: builder.mutation<void, string>({
+      query: (id) => ({ url: `tasks/${id}/restore`, method: 'POST' }),
+      invalidatesTags: ['Tasks', 'TaskCounts'],
+    }),
+
     // Prompts
     getPromptVersions: builder.query<any[], string>({
       query: (purpose) => ({ url: 'prompts', params: { purpose } }),
@@ -275,6 +285,9 @@ export const {
   useGetArchivedTasksQuery,
   useArchiveTaskMutation,
   useUnarchiveTaskMutation,
+  useGetFilteredTasksQuery,
+  useRestoreTaskMutation,
+  useGetTaskCountsQuery,
   useGetReportedTasksQuery,
   useGetSnoozedTasksQuery,
   useReportTaskMutation,

@@ -149,6 +149,18 @@ describe('GmailService', () => {
       expect(service.cleanBody(body)).toBe('Hello\n\n\nMy reply');
     });
 
+    it('keeps the full forwarded body (quoted original is the payload)', () => {
+      const body =
+        '---------- Forwarded message ---------\n' +
+        'From: Paulina <paulina@svangel.com>\n' +
+        'Subject: Fwd: BioStack seed\n\n' +
+        '> BioStack is raising a $4M seed. Can you take a look and let me know by Friday?\n' +
+        '> Deck attached.';
+      const cleaned = service.cleanBody(body);
+      expect(cleaned).toContain('BioStack is raising a $4M seed');
+      expect(cleaned).toContain('let me know by Friday');
+    });
+
     it('strips email signatures after --', () => {
       const body = 'Main content\n--\nJohn Doe\nCEO, Acme Corp';
       expect(service.cleanBody(body)).toBe('Main content');
@@ -191,6 +203,39 @@ describe('GmailService', () => {
     it('handles body with only quoted replies', () => {
       const body = '> line 1\n> line 2\n> line 3';
       expect(service.cleanBody(body)).toBe('');
+    });
+  });
+
+  // =========================================================================
+  // parseForward
+  // =========================================================================
+  describe('parseForward', () => {
+    it('detects a bare forward (no note) and keeps the forwarded body', () => {
+      const body = '---------- Forwarded message ---------\nFrom: Paulina\n\n> Take a look by Friday';
+      const r = service.parseForward(body);
+      expect(r.isForward).toBe(true);
+      expect(r.note).toBe('');
+      expect(r.forwarded).toContain('Take a look by Friday');
+    });
+
+    it('splits the forwarder note from the forwarded email', () => {
+      const body = 'Please review and reply.\n\n---------- Forwarded message ---------\nFrom: Andrea\nDeck attached';
+      const r = service.parseForward(body);
+      expect(r.isForward).toBe(true);
+      expect(r.note).toBe('Please review and reply.');
+      expect(r.forwarded).toContain('Deck attached');
+    });
+
+    it('detects an Outlook forward', () => {
+      const body = 'FYI\n-----Original Message-----\nFrom: Bob\nCan you sign off?';
+      const r = service.parseForward(body);
+      expect(r.isForward).toBe(true);
+      expect(r.note).toBe('FYI');
+    });
+
+    it('returns isForward=false for a normal email', () => {
+      const r = service.parseForward('Hi, can you send the deck?');
+      expect(r.isForward).toBe(false);
     });
   });
 

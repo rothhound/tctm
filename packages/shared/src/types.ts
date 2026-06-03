@@ -1,8 +1,8 @@
 // Task statuses — only two states
 export type TaskStatus = 'pending' | 'done';
 
-// Organizational buckets — where an auto-created pending task lands before triage
-export type TaskBucket = 'inbox' | 'review';
+// Agent (pipeline) verdict — independent of the user lifecycle. null = manually-created task.
+export type TaskTriage = 'keep' | 'review' | 'dismissed';
 
 export type TaskPriority = 'high' | 'mid' | 'low' | 'none';
 
@@ -58,9 +58,10 @@ export interface TaskDto {
   title: string;
   description: string | null;
   status: TaskStatus;
-  bucket: TaskBucket;
+  triage: TaskTriage | null;
   priority: TaskPriority;
   source: string | null;
+  sourceMeta?: { url?: string; sentBy?: { name?: string; email?: string } } | null;
   dueAt: string | null;
   reminderAt: string | null;
   parentTaskId: string | null;
@@ -104,11 +105,12 @@ export const REPORT_REASON_LABELS: Record<ReportReason, string> = {
   other: 'Other',
 };
 
-// Badge counts — by bucket
+// Badge counts
 export interface TaskCounts {
   pending: number;
   done: number;
   total: number;
+  filtered: number;
 }
 
 // Paginated response

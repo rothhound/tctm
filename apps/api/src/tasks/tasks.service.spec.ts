@@ -15,6 +15,7 @@ describe('TasksService', () => {
     description: 'To Roelof',
     status: 'pending',
     bucket: 'inbox',
+    triage: 'keep',
     priority: 'mid',
     archived: false,
     archivedAt: null,
@@ -139,8 +140,7 @@ describe('TasksService', () => {
         subSource: 'slack_dm',
         task: mockExtractedTask,
         judgeVerdict: mockJudgeVerdict,
-        finalBucket: 'inbox',
-        dismissed: false,
+        triage: 'keep',
         autoCreated: true,
         dedupHash: 'abc123',
       });
@@ -159,8 +159,7 @@ describe('TasksService', () => {
         subSource: 'slack_dm',
         task: mockExtractedTask,
         judgeVerdict: mockJudgeVerdict,
-        finalBucket: 'inbox',
-        dismissed: false,
+        triage: 'keep',
         autoCreated: true,
         dedupHash: 'abc123',
       });
@@ -184,16 +183,16 @@ describe('TasksService', () => {
     });
   });
 
-  // ── listByBucket ──────────────────────────────────────────────
+  // ── listActive ────────────────────────────────────────────────
 
-  describe('listByBucket', () => {
-    it('returns paginated tasks for a bucket', async () => {
+  describe('listActive', () => {
+    it('returns paginated active tasks (keep + review, not dismissed)', async () => {
       queryResults = [
         [{ count: 3 }],                     // count query
         [mockTask, mockTask, mockTask],      // data query
       ];
 
-      const result = await service.listByBucket('inbox', 1, 25);
+      const result = await service.listActive(1, 25);
       expect(result.data).toHaveLength(3);
       expect(result.total).toBe(3);
       expect(result.page).toBe(1);
@@ -206,13 +205,13 @@ describe('TasksService', () => {
         Array(25).fill(mockTask),
       ];
 
-      const result = await service.listByBucket('inbox', 1, 25);
+      const result = await service.listActive(1, 25);
       expect(result.hasMore).toBe(true);
     });
 
     it('uses default page and limit', async () => {
       queryResults = [[{ count: 0 }], []];
-      const result = await service.listByBucket('inbox');
+      const result = await service.listActive();
       expect(result.page).toBe(1);
       expect(result.limit).toBe(25);
     });
@@ -228,6 +227,35 @@ describe('TasksService', () => {
       const result = await service.listArchived();
       expect(result).toHaveLength(1);
       expect(result[0].archived).toBe(true);
+    });
+  });
+
+  // ── listFiltered ──────────────────────────────────────────────
+
+  describe('listFiltered', () => {
+    it('returns agent-dismissed tasks', async () => {
+      const dismissed = { ...mockTask, triage: 'dismissed' };
+      queryResults = [[dismissed]];
+
+      const result = await service.listFiltered();
+      expect(result).toHaveLength(1);
+      expect(result[0].triage).toBe('dismissed');
+    });
+  });
+
+  // ── restore ───────────────────────────────────────────────────
+
+  describe('restore', () => {
+    it('promotes a filtered task to keep and records feedback', async () => {
+      queryResults = [
+        [{ ...mockTask, triage: 'dismissed' }], // select for existence
+        undefined,                               // update
+        [],                                      // insert feedback
+      ];
+
+      await service.restore('task-001');
+      expect(mockDb.update).toHaveBeenCalled();
+      expect(mockDb.insert).toHaveBeenCalled();
     });
   });
 
@@ -336,20 +364,23 @@ describe('TasksService', () => {
   // ── getCounts ─────────────────────────────────────────────────
 
   describe('getCounts', () => {
-    it('returns pending, done, and total counts', async () => {
+    it('returns pending, done, total, and filtered counts', async () => {
       queryResults = [
-        [{ count: 12 }],
-        [{ count: 8 }],
+        [{ count: 12 }], // pending
+        [{ count: 4 }],  // filtered
+        [{ count: 8 }],  // done
       ];
 
       const counts = await service.getCounts();
       expect(counts.pending).toBe(12);
       expect(counts.done).toBe(8);
       expect(counts.total).toBe(20);
+      expect(counts.filtered).toBe(4);
     });
 
     it('handles zero counts', async () => {
       queryResults = [
+        [{ count: 0 }],
         [{ count: 0 }],
         [{ count: 0 }],
       ];
@@ -358,6 +389,7 @@ describe('TasksService', () => {
       expect(counts.pending).toBe(0);
       expect(counts.done).toBe(0);
       expect(counts.total).toBe(0);
+      expect(counts.filtered).toBe(0);
     });
   });
 

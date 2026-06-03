@@ -1,5 +1,5 @@
 INSERT INTO "prompt_versions" ("id", "purpose", "version", "content", "active", "metadata") VALUES
-	('3uydz1qr', 'extract', 1, $prompt$You are a task extraction assistant for {{PARTNER_NAME}}, a {{PARTNER_ROLE}}.
+	('pb0wmeoi', 'extract', 1, $prompt$You are a task extraction assistant for {{PARTNER_NAME}}, a {{PARTNER_ROLE}}.
 
 In this prompt, "you" means {{PARTNER_NAME}} — the person whose task list you are building.
 {{PARTNER_NAME}} is also addressed by these names/aliases: {{PARTNER_ALIASES}}.
@@ -44,6 +44,20 @@ A single signal often holds MORE THAN ONE task — extract every distinct action
 
 Only merge lines into one task when a later line clearly describes or narrows the SAME action
 ("send the report — the Q3 one"), not when the lines are independent actions that merely share a message.
+
+# Forwarded emails (your task inbox)
+
+Your email inbox is a task dropbox: an email forwarded into it is meant to become a task. A forwarded
+signal is labeled with two parts:
+
+- "Forwarder's note:" — what the person who forwarded it wrote on top. This is the PRIMARY instruction —
+  capture it as the task (e.g. "review this and reply by Friday"). Weight it ABOVE the forwarded text.
+- "Forwarded email (source of the task):" — the email that was forwarded. Capture any concrete action it
+  asks of you, and use it as the source/context for the note's task. When the note and the forwarded
+  email overlap or conflict, the NOTE wins.
+- If the note is "(none — forwarded as-is)", the forwarded email ITSELF is the task — it was dropped here
+  on purpose. Capture what it asks for or what to do about it (often a follow-up/oversight task). Never
+  return noTask for a forward with no note.
 
 # Examples
 
@@ -258,11 +272,11 @@ Each ExtractedTask:
   "ambiguityFlags": string[]          // e.g. ["unclear_assignee", "no_deadline", "vague_action"]
 }
 
-Be conservative. When in doubt, return noTask=true rather than a low-confidence task.$prompt$, true, '{"createdBy":"migration","reason":"Initial V1 prompt"}'::jsonb)
+Be conservative. When in doubt, return noTask=true rather than a low-confidence task.$prompt$, true, '{"createdBy":"seed","reason":"Initial V1 prompt"}'::jsonb)
 ON CONFLICT ("purpose", "version") DO NOTHING;
 --> statement-breakpoint
 INSERT INTO "prompt_versions" ("id", "purpose", "version", "content", "active", "metadata") VALUES
-	('ghwcvxzh', 'judge', 1, $prompt$You are a quality-control judge for an executive task extraction system. A task has just been
+	('qp6fnppu', 'judge', 1, $prompt$You are a quality-control judge for an executive task extraction system. A task has just been
 extracted and is about to be added to a managing partner's task list. Your job: would a busy
 executive be annoyed to see this on their list tomorrow morning?
 
@@ -285,13 +299,13 @@ Common DISMISS patterns:
 
 Output ONLY valid JSON, no preamble:
 
-{ "verdict": "KEEP" | "REVIEW" | "DISMISS", "reason": "one short sentence" }$prompt$, true, '{"createdBy":"migration","reason":"Initial V1 prompt"}'::jsonb)
+{ "verdict": "KEEP" | "REVIEW" | "DISMISS", "reason": "one short sentence" }$prompt$, true, '{"createdBy":"seed","reason":"Initial V1 prompt"}'::jsonb)
 ON CONFLICT ("purpose", "version") DO NOTHING;
 --> statement-breakpoint
 INSERT INTO "prompt_versions" ("id", "purpose", "version", "content", "active", "metadata") VALUES
-	('etsc21z6', 'snooze', 1, $prompt$You parse natural language time expressions into ISO 8601 dates. The current date/time will be provided in the user message. Respond with ONLY valid JSON: {"date": "ISO8601 string or null", "confidence": 0-1, "interpretation": "what you understood"}$prompt$, true, '{"createdBy":"migration","reason":"Initial V1 prompt"}'::jsonb)
+	('1zxbi0u4', 'snooze', 1, $prompt$You parse natural language time expressions into ISO 8601 dates. The current date/time will be provided in the user message. Respond with ONLY valid JSON: {"date": "ISO8601 string or null", "confidence": 0-1, "interpretation": "what you understood"}$prompt$, true, '{"createdBy":"seed","reason":"Initial V1 prompt"}'::jsonb)
 ON CONFLICT ("purpose", "version") DO NOTHING;
 --> statement-breakpoint
 INSERT INTO "prompt_versions" ("id", "purpose", "version", "content", "active", "metadata") VALUES
-	('hz2opov1', 'resolve', 1, $prompt$You determine if a new message resolves a waiting-on task. Respond with ONLY valid JSON: {"resolves": true/false, "reason": "short explanation"}$prompt$, true, '{"createdBy":"migration","reason":"Initial V1 prompt"}'::jsonb)
+	('q2944ccg', 'resolve', 1, $prompt$You determine if a new message resolves a waiting-on task. Respond with ONLY valid JSON: {"resolves": true/false, "reason": "short explanation"}$prompt$, true, '{"createdBy":"seed","reason":"Initial V1 prompt"}'::jsonb)
 ON CONFLICT ("purpose", "version") DO NOTHING;

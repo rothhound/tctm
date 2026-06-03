@@ -61,6 +61,16 @@ const DEFAULT_THRESHOLDS: Record<string, SourceThresholds> = {
     autoCreate: { explicitness: 0.9, actionability: 0.9, addressedToUser: 0.9, overallConfidence: 0.88 },
     skipBelow: { explicitness: 0.5, actionability: 0.5 },
   },
+  // Gmail forward WITH a note — deliberate drop into the task inbox; lenient (judge still runs)
+  gmail_forward: {
+    autoCreate: { explicitness: 0.6, actionability: 0.65, addressedToUser: 0.6, overallConfidence: 0.6 },
+    skipBelow: { explicitness: 0.2, actionability: 0.2 },
+  },
+  // Gmail bare forward (no note) — explicit partner capture, always auto (judge bypassed)
+  gmail_capture: {
+    autoCreate: { explicitness: 0, actionability: 0, addressedToUser: 0, overallConfidence: 0 },
+    skipBelow: { explicitness: 0, actionability: 0 },
+  },
   // Notion @ mentions
   notion_mention: {
     autoCreate: { explicitness: 0.75, actionability: 0.75, addressedToUser: 0.85, overallConfidence: 0.75 },
@@ -74,11 +84,12 @@ const DEFAULT_THRESHOLDS: Record<string, SourceThresholds> = {
 };
 
 /**
- * Sub-sources where the PARTNER explicitly asked for the capture (Slack @tctm / 🎯 reaction).
- * These bypass the skip-below gate and the adversarial judge and route straight to the inbox —
- * the partner's intent is the QC. Passive `slack_channel` is NOT here; it runs the normal pipeline.
+ * Sub-sources where the PARTNER explicitly asked for the capture: Slack @tctm / 🎯 reaction, and a
+ * bare Gmail forward (an email dropped into the task inbox with no note). These bypass the skip-below
+ * gate and the adversarial judge — the partner's intent is the QC. Passive `slack_channel` and noted
+ * `gmail_forward` are NOT here; they run the normal pipeline.
  */
-const EXPLICIT_SLACK_SUBSOURCES = new Set(['slack_capture', 'slack_reaction']);
+const EXPLICIT_CAPTURE_SUBSOURCES = new Set(['slack_capture', 'slack_reaction', 'gmail_capture']);
 
 @Processor(QUEUES.SIGNALS_EXTRACT, { concurrency: 3 })
 export class SignalExtractProcessor extends WorkerHost {
@@ -114,7 +125,7 @@ export class SignalExtractProcessor extends WorkerHost {
 
     // 1. Extract
     const subSourceKey = signal.subSource ?? signal.source;
-    const isExplicit = EXPLICIT_SLACK_SUBSOURCES.has(subSourceKey);
+    const isExplicit = EXPLICIT_CAPTURE_SUBSOURCES.has(subSourceKey);
     this.logger.log(`processing ${signal.id} (${signal.source}/${signal.subSource ?? '—'})${isExplicit ? ' [explicit capture]' : ''}`);
 
     const input: ExtractInput = {
@@ -162,8 +173,9 @@ export class SignalExtractProcessor extends WorkerHost {
     const thresholds = await this.loadThresholds(subSourceKey);
 
     // 3. For each extracted task: judge → route → persist
+    const sourceMeta = { url: signal.payload.url, sentBy: signal.payload.author };
     for (const task of extraction.tasks) {
-      await this.handleExtractedTask(signal.id, subSourceKey, task, thresholds);
+      await this.handleExtractedTask(signal.id, subSourceKey, task, thresholds, sourceMeta);
     }
 
     await this.db
@@ -177,19 +189,19 @@ export class SignalExtractProcessor extends WorkerHost {
     subSourceKey: string,
     task: ExtractedTask,
     thresholds: SourceThresholds,
+    sourceMeta: { url?: string; sentBy?: { name?: string; email?: string } },
   ): Promise<void> {
-    const isExplicit = EXPLICIT_SLACK_SUBSOURCES.has(subSourceKey);
+    const isExplicit = EXPLICIT_CAPTURE_SUBSOURCES.has(subSourceKey);
 
-    let finalBucket: 'inbox' | 'review' = 'inbox';
-    let dismissed = false;
+    let triage: 'keep' | 'review' | 'dismissed' = 'keep';
     let autoCreated = false;
     let judgeVerdict;
 
     if (isExplicit) {
       // The partner explicitly captured this (@tctm / 🎯). No skip-below gate, no judge —
-      // their gesture is the QC. Straight to the inbox.
+      // their gesture is the QC. Keep it.
       judgeVerdict = { verdict: 'KEEP' as const, reason: 'Explicit partner capture (judge bypassed)' };
-      finalBucket = 'inbox';
+      triage = 'keep';
       autoCreated = true;
     } else {
       // Skip-below check: signals too low to even bother judging
@@ -212,13 +224,13 @@ export class SignalExtractProcessor extends WorkerHost {
       // Judge pass — adversarial QC
       judgeVerdict = await this.judge.judge(task, signalId);
 
-      // Final routing decision
+      // Final triage decision (agent dimension — independent of the user lifecycle)
       if (judgeVerdict.verdict === 'DISMISS') {
-        dismissed = true;
+        triage = 'dismissed';
       } else if (judgeVerdict.verdict === 'REVIEW' || !meetsAutoCreate) {
-        finalBucket = 'review';
+        triage = 'review'; // lower-confidence; still shows in Active, user can Report non-tasks
       } else {
-        finalBucket = 'inbox';
+        triage = 'keep';
         autoCreated = true;
       }
     }
@@ -234,31 +246,25 @@ export class SignalExtractProcessor extends WorkerHost {
       subSource: subSourceKey,
       task,
       judgeVerdict,
-      finalBucket,
-      dismissed,
+      triage,
       autoCreated,
       dedupHash,
+      sourceMeta,
     });
 
     // Always log the outcome — a successful capture is otherwise silent, which reads as "nothing happened".
     if (taskId) {
       this.logger.log(
-        `Signal ${signalId}: task "${task.title}" → ${dismissed ? 'dismissed' : finalBucket}${autoCreated ? ' (auto)' : ''} [${taskId}]`,
+        `Signal ${signalId}: task "${task.title}" → ${triage}${autoCreated ? ' (auto)' : ''} [${taskId}]`,
       );
     }
 
-    // Push notification for new tasks (not deduped, not dismissed)
-    if (taskId && !dismissed && finalBucket === 'inbox') {
+    // Push for tasks that surface in Active (keep + review); dismissed (Filtered) stays silent.
+    if (taskId && triage !== 'dismissed') {
       this.notifications.sendPush({
         title: 'New task',
         body: task.title,
         url: `/tasks/${taskId}`,
-      }).catch(err => this.logger.error(`Push failed: ${err.message}`));
-    } else if (taskId && !dismissed && finalBucket === 'review') {
-      this.notifications.sendPush({
-        title: 'Review needed',
-        body: task.title,
-        url: `/review`,
       }).catch(err => this.logger.error(`Push failed: ${err.message}`));
     }
   }

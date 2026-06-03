@@ -5,17 +5,12 @@ describe('Task Panel', () => {
     cy.fixture('tasks').then((tasks) => {
       const task = tasks[0]; // task-001
 
-      // Set up task list — inbox has one task, other buckets empty
-      cy.intercept('GET', '/api/tasks?bucket=inbox*', {
+      // Active list returns the single task
+      cy.intercept('GET', '/api/tasks?*', {
         body: { data: [task], total: 1, page: 1, limit: 25, hasMore: false },
       });
-      for (const bucket of ['review', 'today', 'this_week', 'waiting_on']) {
-        cy.intercept('GET', `/api/tasks?bucket=${bucket}*`, {
-          body: { data: [], total: 0, page: 1, limit: 25, hasMore: false },
-        });
-      }
       cy.intercept('GET', '/api/tasks/counts', {
-        body: { pending: 1, done: 0, total: 1 },
+        body: { pending: 1, done: 0, total: 1, filtered: 0 },
       });
 
       // Single task endpoint for panel

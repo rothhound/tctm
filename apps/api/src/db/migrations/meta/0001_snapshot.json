@@ -1,6 +1,6 @@
 {
-  "id": "4e59869d-e68b-4bb7-8a6d-67cf8e05d3ee",
-  "prevId": "bc89b0f2-a5df-4a0f-ac77-7da638e877c2",
+  "id": "dc61d6bb-9e9e-4f90-8ec6-4cf5cdfa3d2e",
+  "prevId": "e58d4f0f-d779-4bce-9b24-6a38069167ea",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1026,14 +1026,6 @@
           "notNull": true,
           "default": "'pending'"
         },
-        "bucket": {
-          "name": "bucket",
-          "type": "task_bucket",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'inbox'"
-        },
         "priority": {
           "name": "priority",
           "type": "task_priority",
@@ -1106,6 +1098,13 @@
           "notNull": true,
           "default": false
         },
+        "triage": {
+          "name": "triage",
+          "type": "task_triage",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
         "dedup_hash": {
           "name": "dedup_hash",
           "type": "text",
@@ -1171,21 +1170,6 @@
           "columns": [
             {
               "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "tasks_bucket_idx": {
-          "name": "tasks_bucket_idx",
-          "columns": [
-            {
-              "expression": "bucket",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -1285,6 +1269,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "tasks_triage_idx": {
+          "name": "tasks_triage_idx",
+          "columns": [
+            {
+              "expression": "triage",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -1362,14 +1361,6 @@
         "granola"
       ]
     },
-    "public.task_bucket": {
-      "name": "task_bucket",
-      "schema": "public",
-      "values": [
-        "inbox",
-        "review"
-      ]
-    },
     "public.task_priority": {
       "name": "task_priority",
       "schema": "public",
@@ -1386,6 +1377,15 @@
       "values": [
         "pending",
         "done"
+      ]
+    },
+    "public.task_triage": {
+      "name": "task_triage",
+      "schema": "public",
+      "values": [
+        "keep",
+        "review",
+        "dismissed"
       ]
     }
   },

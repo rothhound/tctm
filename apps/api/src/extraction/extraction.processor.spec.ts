@@ -33,6 +33,7 @@ describe('SignalExtractProcessor', () => {
       title: 'DM from John',
       body: 'Send the cap table by Friday',
       author: { name: 'John', email: 'john@test.com' },
+      url: 'https://slack.com/archives/C123/p123',
       occurredAt: '2026-05-19T10:00:00Z',
       raw: {},
     },
@@ -139,33 +140,36 @@ describe('SignalExtractProcessor', () => {
     expect(mockTasksService.createFromExtraction).not.toHaveBeenCalled();
   });
 
-  it('routes DISMISS verdict to archived/dismissed', async () => {
+  it('routes DISMISS verdict to triage=dismissed (Filtered, not archived)', async () => {
     (mockJudge.judge as jest.Mock).mockResolvedValue({ verdict: 'DISMISS', reason: 'FYI' });
 
     const job = { data: { signalId: 'sig-001' } } as Job<{ signalId: string }>;
     await processor.process(job);
 
     const createCall = (mockTasksService.createFromExtraction as jest.Mock).mock.calls[0][0];
-    expect(createCall.dismissed).toBe(true);
+    expect(createCall.triage).toBe('dismissed');
+    expect(createCall.dismissed).toBeUndefined(); // no longer encoded as a user-archive
   });
 
-  it('routes REVIEW verdict to review bucket', async () => {
+  it('routes REVIEW verdict to triage=review', async () => {
     (mockJudge.judge as jest.Mock).mockResolvedValue({ verdict: 'REVIEW', reason: 'Ambiguous' });
 
     const job = { data: { signalId: 'sig-001' } } as Job<{ signalId: string }>;
     await processor.process(job);
 
     const createCall = (mockTasksService.createFromExtraction as jest.Mock).mock.calls[0][0];
-    expect(createCall.finalBucket).toBe('review');
+    expect(createCall.triage).toBe('review');
   });
 
-  it('routes KEEP verdict with high confidence to inbox', async () => {
+  it('routes KEEP verdict with high confidence to triage=keep', async () => {
     const job = { data: { signalId: 'sig-001' } } as Job<{ signalId: string }>;
     await processor.process(job);
 
     const createCall = (mockTasksService.createFromExtraction as jest.Mock).mock.calls[0][0];
-    expect(createCall.finalBucket).toBe('inbox');
+    expect(createCall.triage).toBe('keep');
     expect(createCall.autoCreated).toBe(true);
+    // source provenance plumbed from the signal payload
+    expect(createCall.sourceMeta).toEqual({ url: 'https://slack.com/archives/C123/p123', sentBy: { name: 'John', email: 'john@test.com' } });
   });
 
   it('synthesizes a fallback task for an explicit capture that the extractor returns noTask for', async () => {
@@ -176,15 +180,15 @@ describe('SignalExtractProcessor', () => {
     const job = { data: { signalId: 'sig-001' } } as Job<{ signalId: string }>;
     await processor.process(job);
 
-    // Explicit captures must never be dropped — a task is still created (judge bypassed → inbox).
+    // Explicit captures must never be dropped — a task is still created (judge bypassed → keep).
     expect(mockJudge.judge).not.toHaveBeenCalled();
     expect(mockTasksService.createFromExtraction).toHaveBeenCalled();
     const createCall = (mockTasksService.createFromExtraction as jest.Mock).mock.calls[0][0];
-    expect(createCall.finalBucket).toBe('inbox');
+    expect(createCall.triage).toBe('keep');
     expect(createCall.autoCreated).toBe(true);
   });
 
-  it('bypasses the judge for explicit Slack captures (@tctm / 🎯) and routes straight to inbox', async () => {
+  it('bypasses the judge for explicit Slack captures (@tctm / 🎯) and keeps them', async () => {
     selectResults.length = 0;
     selectResults.push([{ ...mockSignal, subSource: 'slack_capture' }], []);
 
@@ -194,9 +198,32 @@ describe('SignalExtractProcessor', () => {
     expect(mockJudge.judge).not.toHaveBeenCalled();
     const createCall = (mockTasksService.createFromExtraction as jest.Mock).mock.calls[0][0];
     expect(createCall.subSource).toBe('slack_capture');
-    expect(createCall.finalBucket).toBe('inbox');
+    expect(createCall.triage).toBe('keep');
     expect(createCall.autoCreated).toBe(true);
-    expect(createCall.dismissed).toBe(false);
     expect(createCall.judgeVerdict.verdict).toBe('KEEP');
+  });
+
+  it('treats a bare Gmail forward (gmail_capture) as an explicit capture', async () => {
+    selectResults.length = 0;
+    selectResults.push([{ ...mockSignal, source: 'gmail', subSource: 'gmail_capture' }], []);
+
+    const job = { data: { signalId: 'sig-001' } } as Job<{ signalId: string }>;
+    await processor.process(job);
+
+    expect(mockJudge.judge).not.toHaveBeenCalled();
+    const createCall = (mockTasksService.createFromExtraction as jest.Mock).mock.calls[0][0];
+    expect(createCall.subSource).toBe('gmail_capture');
+    expect(createCall.triage).toBe('keep');
+    expect(createCall.autoCreated).toBe(true);
+  });
+
+  it('runs the judge for a noted Gmail forward (gmail_forward)', async () => {
+    selectResults.length = 0;
+    selectResults.push([{ ...mockSignal, source: 'gmail', subSource: 'gmail_forward' }], []);
+
+    const job = { data: { signalId: 'sig-001' } } as Job<{ signalId: string }>;
+    await processor.process(job);
+
+    expect(mockJudge.judge).toHaveBeenCalled(); // not explicit — normal pipeline
   });
 });

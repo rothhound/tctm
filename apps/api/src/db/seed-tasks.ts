@@ -272,18 +272,18 @@ async function run() {
 
   // Seed tasks
   console.log('Seeding 80 tasks...');
-  const buckets = ['inbox', 'review'] as const;
   const priorities = ['high', 'mid', 'low'] as const;
   const taskTypes = Object.keys(TASK_TEMPLATES) as Array<keyof typeof TASK_TEMPLATES>;
   const parentTaskIds: string[] = [];
   let taskCount = 0;
 
-  // Distribution: 80 total → 30 pending, 15 done, 20 archived, 15 reported
+  // Distribution: 80 total → 30 pending, 15 done, 15 archived, 10 filtered, 10 reported
   const distribution = [
     ...Array(30).fill('pending'),
     ...Array(15).fill('done'),
-    ...Array(20).fill('archived'),
-    ...Array(15).fill('reported'),
+    ...Array(15).fill('archived'),
+    ...Array(10).fill('filtered'),
+    ...Array(10).fill('reported'),
   ];
   // Shuffle
   for (let i = distribution.length - 1; i > 0; i--) {
@@ -296,10 +296,12 @@ async function run() {
     const isDone = kind === 'done';
     const isArchived = kind === 'archived';
     const isReported = kind === 'reported';
+    const isFiltered = kind === 'filtered';
+    // Agent verdict (independent of user lifecycle): filtered → dismissed; otherwise mostly keep.
+    const triage = isFiltered ? 'dismissed' : Math.random() < 0.8 ? 'keep' : 'review';
     const type = pick(taskTypes);
     const template = pick(TASK_TEMPLATES[type]);
     const title = fillTemplate(template);
-    const bucket = pick([...buckets]);
     const priority = pick([...priorities]);
     const hasRecurrence = Math.random() < 0.08;
     const hasDueDate = Math.random() < 0.6;
@@ -314,7 +316,7 @@ async function run() {
         title,
         description: Math.random() > 0.3 ? `<p>${pick(COMPANIES)} — ${pick(PEOPLE).role}. ${Math.random() > 0.5 ? '<strong>Urgent</strong> — ' : ''}needs attention by ${pick(['end of week', 'tomorrow', 'next Monday', 'board meeting', 'closing date'])}.</p>` : null,
         status: isDone ? 'done' : 'pending',
-        bucket,
+        triage: triage as 'keep' | 'review' | 'dismissed',
         priority,
         source: pick(['slack', 'gmail', 'notion', 'granola']),
         dueAt,
@@ -347,7 +349,7 @@ async function run() {
       }
     }
   }
-  console.log(`Seeded ${taskCount} tasks (30 pending, 15 done, 20 archived, 15 reported).`);
+  console.log(`Seeded ${taskCount} tasks (30 pending, 15 done, 15 archived, 10 filtered, 10 reported).`);
 
   // Seed subtasks for parent tasks
   console.log('Seeding subtasks...');
@@ -361,7 +363,6 @@ async function run() {
       await db.insert(tasks).values({
         title: subtaskNames[j],
         status: subDone ? 'done' : 'pending',
-        bucket: 'inbox',
         priority: pick([...priorities]),
         parentTaskId: parentId,
         completedAt: subDone ? randomDate(7, 0) : null,

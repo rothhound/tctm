@@ -2,23 +2,19 @@ describe('Active Page', () => {
   function setupTaskIntercepts() {
     cy.fixture('tasks').then((tasks) => {
       const pending = tasks.filter(
-        (t: any) => t.status === 'pending' && !t.archived && !t.reported && !t.reminderAt,
+        (t: any) => t.status === 'pending' && !t.archived && !t.reported && !t.reminderAt && t.triage !== 'dismissed',
       );
       const done = tasks.filter(
         (t: any) => t.status === 'done' && !t.archived && !t.reported,
       );
-      const allActive = [...pending, ...done];
 
-      // The useAllTasks hook fetches each active bucket separately
-      for (const bucket of ['inbox', 'review']) {
-        const bucketTasks = allActive.filter((t: any) => t.bucket === bucket);
-        cy.intercept('GET', `/api/tasks?bucket=${bucket}*`, {
-          body: { data: bucketTasks, total: bucketTasks.length, page: 1, limit: 25, hasMore: false },
-        });
-      }
+      // useAllTasks now fetches the single Active list (keep + review, not agent-dismissed).
+      cy.intercept('GET', '/api/tasks?*', {
+        body: { data: pending, total: pending.length, page: 1, limit: 25, hasMore: false },
+      });
 
       cy.intercept('GET', '/api/tasks/counts', {
-        body: { pending: pending.length, done: done.length, total: allActive.length },
+        body: { pending: pending.length, done: done.length, total: pending.length + done.length, filtered: 0 },
       });
     });
   }

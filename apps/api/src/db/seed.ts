@@ -74,6 +74,26 @@ const DEFAULT_CONFIGS = [
     filters: {},
   },
   {
+    // Gmail forward WITH a note — deliberate drop into the task inbox; lenient (judge still runs).
+    source: 'gmail_forward',
+    enabled: true,
+    thresholds: {
+      autoCreate: { explicitness: 0.6, actionability: 0.65, addressedToUser: 0.6, overallConfidence: 0.6 },
+      skipBelow: { explicitness: 0.2, actionability: 0.2 },
+    },
+    filters: {},
+  },
+  {
+    // Gmail bare forward (no note) — explicit partner capture; thresholds zero (judge bypassed).
+    source: 'gmail_capture',
+    enabled: true,
+    thresholds: {
+      autoCreate: { explicitness: 0, actionability: 0, addressedToUser: 0, overallConfidence: 0 },
+      skipBelow: { explicitness: 0, actionability: 0 },
+    },
+    filters: {},
+  },
+  {
     source: 'notion_mention',
     enabled: true,
     thresholds: {

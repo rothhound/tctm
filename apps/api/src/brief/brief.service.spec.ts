@@ -15,9 +15,10 @@ describe('BriefService', () => {
         from: jest.fn().mockReturnValue({
           where: jest.fn().mockReturnValue({
             groupBy: jest.fn().mockResolvedValue([
-              { bucket: 'today', count: 3 },
-              { bucket: 'waiting_on', count: 2 },
-              { bucket: 'inbox', count: 4 },
+              { triage: 'keep', count: 4 },
+              { triage: 'review', count: 2 },
+              { triage: 'dismissed', count: 5 },
+              { triage: null, count: 1 },
             ]),
           }),
         }),
@@ -37,12 +38,10 @@ describe('BriefService', () => {
 
   it('composes a summary with correct counts', async () => {
     const summary = await service.composeSummary();
-    expect(summary.today).toBe(3);
-    expect(summary.waitingOn).toBe(2);
-    expect(summary.inbox).toBe(4);
-    expect(summary.message).toContain('3 must-do today');
-    expect(summary.message).toContain('2 waiting on responses');
-    expect(summary.message).toContain('4 new in inbox');
+    expect(summary.active).toBe(7); // keep 4 + review 2 + manual 1
+    expect(summary.filtered).toBe(5);
+    expect(summary.message).toContain('7 tasks in your queue');
+    expect(summary.message).toContain('5 filtered as noise');
   });
 
   it('sends push notification with summary', async () => {

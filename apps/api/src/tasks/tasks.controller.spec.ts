@@ -22,6 +22,10 @@ describe('TasksController', () => {
     { id: 'task-4', title: 'Reported Task', status: 'pending', bucket: 'inbox', reported: true },
   ];
 
+  const mockFilteredList = [
+    { id: 'task-6', title: 'Filtered Task', status: 'pending', triage: 'dismissed' },
+  ];
+
   const mockSnoozedList = [
     { id: 'task-5', title: 'Snoozed Task', status: 'pending', bucket: 'inbox', reminderAt: '2099-01-01T00:00:00Z' },
   ];
@@ -42,17 +46,19 @@ describe('TasksController', () => {
 
   beforeEach(async () => {
     tasksService = {
-      listByBucket: jest.fn().mockResolvedValue(mockPaginated),
-      getCounts: jest.fn().mockResolvedValue({ pending: 2, done: 0, total: 2 }),
+      listActive: jest.fn().mockResolvedValue(mockPaginated),
+      getCounts: jest.fn().mockResolvedValue({ pending: 2, done: 0, total: 2, filtered: 1 }),
       findOne: jest.fn().mockResolvedValue(mockPaginated.data[0]),
       edit: jest.fn().mockResolvedValue(undefined),
       complete: jest.fn().mockResolvedValue(undefined),
       listArchived: jest.fn().mockResolvedValue(mockArchivedList),
+      listFiltered: jest.fn().mockResolvedValue(mockFilteredList),
       listReported: jest.fn().mockResolvedValue(mockReportedList),
       listSnoozed: jest.fn().mockResolvedValue(mockSnoozedList),
       getSubtasks: jest.fn().mockResolvedValue(mockSubtasks),
       archive: jest.fn().mockResolvedValue(undefined),
       unarchive: jest.fn().mockResolvedValue(undefined),
+      restore: jest.fn().mockResolvedValue(undefined),
       report: jest.fn().mockResolvedValue(undefined),
       unreport: jest.fn().mockResolvedValue(undefined),
       setReminder: jest.fn().mockResolvedValue(undefined),
@@ -71,20 +77,31 @@ describe('TasksController', () => {
     controller = module.get<TasksController>(TasksController);
   });
 
-  it('lists tasks by bucket with pagination', async () => {
-    const result = await controller.list('inbox', '1', '25');
-    expect(tasksService.listByBucket).toHaveBeenCalledWith('inbox', 1, 25);
+  it('lists active tasks with pagination', async () => {
+    const result = await controller.list('1', '25');
+    expect(tasksService.listActive).toHaveBeenCalledWith(1, 25);
     expect(result).toEqual(mockPaginated);
   });
 
-  it('defaults to inbox bucket, page 1, limit 25', async () => {
+  it('defaults to page 1, limit 25', async () => {
     await controller.list();
-    expect(tasksService.listByBucket).toHaveBeenCalledWith('inbox', 1, 25);
+    expect(tasksService.listActive).toHaveBeenCalledWith(1, 25);
   });
 
   it('returns badge counts', async () => {
     const result = await controller.counts();
-    expect(result).toEqual({ pending: 2, done: 0, total: 2 });
+    expect(result).toEqual({ pending: 2, done: 0, total: 2, filtered: 1 });
+  });
+
+  it('lists filtered (agent-dismissed) tasks', async () => {
+    const result = await controller.filtered();
+    expect(tasksService.listFiltered).toHaveBeenCalled();
+    expect(result).toEqual(mockFilteredList);
+  });
+
+  it('restores a filtered task', async () => {
+    await controller.restore('task-6');
+    expect(tasksService.restore).toHaveBeenCalledWith('task-6');
   });
 
   it('returns single task by id', async () => {

@@ -10,11 +10,14 @@ interface CreateFromExtractionInput {
   subSource: string;
   task: ExtractedTask;
   judgeVerdict: JudgeVerdict;
-  finalBucket: 'inbox' | 'review';
-  dismissed: boolean;
+  triage: 'keep' | 'review' | 'dismissed';
   autoCreated: boolean;
   dedupHash: string;
+  sourceMeta?: { url?: string; sentBy?: { name?: string; email?: string } };
 }
+
+// Active shows keep + review + manual (NULL); only judge-dismissed is hidden (→ Filtered view).
+const notDismissed = or(isNull(tasks.triage), ne(tasks.triage, 'dismissed'));
 
 @Injectable()
 export class TasksService {
@@ -54,22 +57,21 @@ export class TasksService {
         description: input.task.description,
         source: parentSource,
         status: 'pending',
-        bucket: input.finalBucket,
         priority: 'mid',
+        sourceMeta: input.sourceMeta,
         entityIds: input.task.entityRefs.map(r => r.entityId).filter(Boolean) as string[],
         waitingOnEntityIds: (input.task.waitingOnEntityRefs ?? []).map(r => r.entityId).filter(Boolean) as string[],
         sourceSignalIds: [input.signalId],
         dueAt: input.task.dueAtIso ? new Date(input.task.dueAtIso) : null,
         dedupHash: input.dedupHash,
         autoCreated: input.autoCreated,
-        archived: input.dismissed,
-        archivedAt: input.dismissed ? new Date() : null,
+        triage: input.triage,
         extraction: this.buildExtractionMetadata(input.task, input.judgeVerdict),
       })
       .returning({ id: tasks.id });
 
-    if (input.dismissed) {
-      this.logger.log(`Task "${input.task.title}" dismissed (archived) by judge: ${input.judgeVerdict.reason}`);
+    if (input.triage === 'dismissed') {
+      this.logger.log(`Task "${input.task.title}" filtered (dismissed) by judge: ${input.judgeVerdict.reason}`);
     }
 
     return row.id;
@@ -89,17 +91,17 @@ export class TasksService {
   }
 
   // ============================================================================
-  // Read API — queries by bucket (only pending, non-archived tasks)
+  // Read API — the Active queue (pending, not archived/reported/snoozed, not agent-dismissed)
   // ============================================================================
 
-  async listByBucket(bucket: string, page = 1, limit = 25) {
+  async listActive(page = 1, limit = 25) {
     const now = new Date();
     const conditions = and(
-      eq(tasks.bucket, bucket as any),
       eq(tasks.archived, false),
       eq(tasks.reported, false),
       isNull(tasks.parentTaskId),
       or(isNull(tasks.reminderAt), lte(tasks.reminderAt, now)),
+      notDismissed,
     );
 
     const [totalRow] = await this.db
@@ -122,11 +124,21 @@ export class TasksService {
   }
 
   async listArchived() {
+    // User-archived only now — the judge no longer sets `archived` (it sets triage='dismissed').
     return this.db
       .select()
       .from(tasks)
       .where(and(eq(tasks.archived, true), eq(tasks.reported, false)))
       .orderBy(desc(tasks.archivedAt));
+  }
+
+  async listFiltered() {
+    // Agent-dismissed tasks — what the judge hid from Active. User actions still win.
+    return this.db
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.triage, 'dismissed'), eq(tasks.archived, false), eq(tasks.reported, false)))
+      .orderBy(desc(tasks.createdAt));
   }
 
   async listDone() {
@@ -139,6 +151,7 @@ export class TasksService {
           eq(tasks.archived, false),
           eq(tasks.reported, false),
           isNull(tasks.parentTaskId),
+          notDismissed,
         ),
       )
       .orderBy(desc(tasks.completedAt));
@@ -155,6 +168,7 @@ export class TasksService {
           eq(tasks.reported, false),
           isNull(tasks.parentTaskId),
           gte(tasks.reminderAt, now),
+          notDismissed,
         ),
       )
       .orderBy(tasks.reminderAt);
@@ -239,8 +253,15 @@ export class TasksService {
           eq(tasks.reported, false),
           isNull(tasks.parentTaskId),
           or(isNull(tasks.reminderAt), lte(tasks.reminderAt, now)),
+          notDismissed,
         ),
       );
+
+    // Filtered count (agent-dismissed, not user-archived/reported)
+    const [filteredRow] = await this.db
+      .select({ count: count() })
+      .from(tasks)
+      .where(and(eq(tasks.triage, 'dismissed'), eq(tasks.archived, false), eq(tasks.reported, false)));
 
     // Done count (what shows in Active → Done section)
     const [doneRow] = await this.db
@@ -259,8 +280,9 @@ export class TasksService {
     // Total active = pending + done (non-archived, non-reported)
     const pending = Number(pendingRow?.count ?? 0);
     const done = Number(doneRow?.count ?? 0);
+    const filtered = Number(filteredRow?.count ?? 0);
 
-    return { pending, done, total: pending + done };
+    return { pending, done, total: pending + done, filtered };
   }
 
   // ============================================================================
@@ -338,6 +360,27 @@ export class TasksService {
       .where(eq(tasks.id, taskId));
   }
 
+  /** Restore an agent-dismissed (Filtered) task into Active by promoting its verdict to keep. */
+  async restore(taskId: string) {
+    const [task] = await this.db.select().from(tasks).where(eq(tasks.id, taskId));
+    if (!task) throw new NotFoundException('Task not found');
+
+    await this.db
+      .update(tasks)
+      .set({ triage: 'keep', updatedAt: new Date() })
+      .where(eq(tasks.id, taskId));
+
+    // The agent filtered a real task — record the correction as training feedback.
+    await this.db.insert(extractionFeedback).values({
+      taskId,
+      signalId: task.sourceSignalIds[0] ?? null,
+      action: 'accepted',
+      reason: 'Restored from Filtered (agent false-negative)',
+      extractionSnapshot: task.extraction ?? {},
+      wasAutoCreated: task.autoCreated,
+    });
+  }
+
   // ============================================================================
   // Subtasks
   // ============================================================================
@@ -351,7 +394,7 @@ export class TasksService {
         title: data.title,
         description: data.description,
         status: 'pending',
-        bucket: parent.bucket,
+        // Manually-created subtask → no agent verdict (triage NULL); nested, so never listed directly.
         priority: data.priority ?? 'mid',
         parentTaskId: parentId,
         dueAt: data.dueAt ? new Date(data.dueAt) : null,
@@ -437,7 +480,6 @@ export class TasksService {
         title: task.title,
         description: task.description,
         status: 'pending',
-        bucket: task.bucket,
         priority: task.priority,
         dueAt: nextDueAt,
         recurrence: { ...task.recurrence, nextDueAt: nextDueAt.toISOString() },
@@ -446,6 +488,8 @@ export class TasksService {
         waitingOnEntityIds: task.waitingOnEntityIds,
         extraction: task.extraction,
         autoCreated: task.autoCreated,
+        triage: task.triage, // recurrence clone keeps the agent verdict
+        sourceMeta: task.sourceMeta,
       })
       .returning({ id: tasks.id });
 
@@ -456,7 +500,6 @@ export class TasksService {
         title: sub.title,
         description: sub.description,
         status: 'pending',
-        bucket: sub.bucket,
         priority: sub.priority,
         parentTaskId: newTask.id,
       });

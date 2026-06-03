@@ -25,9 +25,12 @@ export const taskStatusEnum = pgEnum('task_status', [
   'done',
 ]);
 
-export const taskBucketEnum = pgEnum('task_bucket', [
-  'inbox',      // auto-created, not yet triaged
-  'review',     // judge flagged for human review
+// Agent (pipeline) verdict — independent of the user lifecycle (status/archived/reported/snooze).
+// NULL = manually-created task (no agent verdict). 'dismissed' = auto-hidden by the judge (Filtered view).
+export const taskTriageEnum = pgEnum('task_triage', [
+  'keep',       // confident — shows in Active
+  'review',     // lower-confidence / judge REVIEW — also shows in Active (user reports non-tasks)
+  'dismissed',  // judge DISMISS — hidden from Active, surfaced only in the Filtered view
 ]);
 
 export const taskPriorityEnum = pgEnum('task_priority', [
@@ -117,9 +120,15 @@ export const tasks = pgTable('tasks', {
   title: text('title').notNull(),
   description: text('description'),  // supports HTML from rich text editor
   status: taskStatusEnum('status').notNull().default('pending'),
-  bucket: taskBucketEnum('bucket').notNull().default('inbox'),
   priority: taskPriorityEnum('priority').notNull().default('none'),
   source: text('source'),  // 'gmail', 'slack', 'notion', 'granola', or null for manual
+
+  // Source provenance for "View source" / "Sent by" on the task. url is a usable permalink for
+  // slack/granola/notion; for gmail (dropbox) it's omitted and only sentBy.email is shown.
+  sourceMeta: jsonb('source_meta').$type<{
+    url?: string;
+    sentBy?: { name?: string; email?: string };
+  }>(),
 
   dueAt: timestamp('due_at', { withTimezone: true }),
   reminderAt: timestamp('reminder_at', { withTimezone: true }),
@@ -164,6 +173,9 @@ export const tasks = pgTable('tasks', {
 
   autoCreated: boolean('auto_created').notNull().default(false),
 
+  // Agent verdict (keep/review/dismissed); NULL for manually-created tasks. See taskTriageEnum.
+  triage: taskTriageEnum('triage'),
+
   // Dedup hash for cross-signal task collapsing
   dedupHash: text('dedup_hash'),
 
@@ -182,13 +194,13 @@ export const tasks = pgTable('tasks', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({
   statusIdx: index('tasks_status_idx').on(t.status),
-  bucketIdx: index('tasks_bucket_idx').on(t.bucket),
   priorityIdx: index('tasks_priority_idx').on(t.priority),
   dueAtIdx: index('tasks_due_at_idx').on(t.dueAt),
   dedupHashIdx: index('tasks_dedup_hash_idx').on(t.dedupHash),
   parentTaskIdIdx: index('tasks_parent_task_id_idx').on(t.parentTaskId),
   archivedIdx: index('tasks_archived_idx').on(t.archived),
   reportedIdx: index('tasks_reported_idx').on(t.reported),
+  triageIdx: index('tasks_triage_idx').on(t.triage),
 }));
 
 // ============================================================================

@@ -4,7 +4,7 @@ import { REPORT_REASON_LABELS } from '@tctm/shared';
 import { SourceIcon } from './SourceIcon';
 import { InlineDatePicker } from './InlineDatePicker';
 
-export type TaskCardFlavor = 'active' | 'done' | 'snoozed' | 'archived' | 'reported';
+export type TaskCardFlavor = 'active' | 'done' | 'snoozed' | 'archived' | 'reported' | 'filtered';
 
 interface TaskCardProps {
   task: TaskDto;
@@ -59,6 +59,7 @@ const FLAVORS: Record<TaskCardFlavor, FlavorConfig> = {
   snoozed:  { actionLabel: 'Wake up',  actionTone: 'primary', draggable: false, showCheckbox: false, titleLineThrough: false, containerOpacity: '' },
   archived: { actionLabel: 'Restore',  actionTone: 'primary', draggable: false, showCheckbox: false, titleLineThrough: false, containerOpacity: 'opacity-70' },
   reported: { actionLabel: 'Restore',  actionTone: 'primary', draggable: false, showCheckbox: false, titleLineThrough: false, containerOpacity: '' },
+  filtered: { actionLabel: 'Restore',  actionTone: 'primary', draggable: false, showCheckbox: false, titleLineThrough: false, containerOpacity: 'opacity-70' },
 };
 
 // ── Helpers ─────────────────────────────────────────────────────

@@ -22,7 +22,7 @@ function mockTask(overrides: Partial<TaskDto> = {}): TaskDto {
     title: 'Review pitch deck',
     description: 'From Acme Corp',
     status: 'pending',
-    bucket: 'inbox',
+    triage: 'keep',
     priority: 'high',
     source: 'gmail',
     dueAt: null,

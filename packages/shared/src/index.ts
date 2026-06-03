@@ -7,7 +7,7 @@ export type {
   TaskCounts,
   TaskPriority,
   TaskStatus,
-  TaskBucket,
+  TaskTriage,
   PaginatedResponse,
   LoginResponse,
   ReportReason,

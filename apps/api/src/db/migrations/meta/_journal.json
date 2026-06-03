@@ -5,15 +5,22 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1780102185678,
-      "tag": "0000_abandoned_omega_flight",
+      "when": 1780507627492,
+      "tag": "0000_wise_frightful_four",
       "breakpoints": true
     },
     {
       "idx": 1,
       "version": "7",
-      "when": 1780444151485,
+      "when": 1780507627493,
       "tag": "0001_seed_prompt_versions",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780514560557,
+      "tag": "0002_tired_rocket_raccoon",
       "breakpoints": true
     }
   ]

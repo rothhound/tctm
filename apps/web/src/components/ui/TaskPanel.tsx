@@ -213,6 +213,24 @@ export function TaskPanel({ taskId, onClose, onTaskUpdated }: TaskPanelProps) {
             )}
           </div>
 
+          {/* Source provenance — link for slack/granola/notion; sender email for gmail (dropbox) */}
+          {task.sourceMeta && (task.source === 'gmail' ? task.sourceMeta.sentBy?.email : task.sourceMeta.url) && (
+            <div className="text-xs text-[var(--color-text-muted)] -mt-2">
+              {task.source === 'gmail' ? (
+                <span>Sent by {task.sourceMeta.sentBy?.email}</span>
+              ) : (
+                <a
+                  href={task.sourceMeta.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-[var(--color-text)] underline-offset-2 hover:underline"
+                >
+                  View in {task.source ? task.source.charAt(0).toUpperCase() + task.source.slice(1) : 'source'} ↗
+                </a>
+              )}
+            </div>
+          )}
+
           {/* Priority + Due date */}
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex-1 min-w-[180px]">

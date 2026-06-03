@@ -26,6 +26,7 @@
     "db:clean": "npm run db:clean -w @tctm/api",
     "granola:sync": "npm run granola:sync -w @tctm/api",
     "db:setup": "npm run db:drop -w @tctm/api && npm run db:create -w @tctm/api && npm run db:migrate -w @tctm/api && npm run db:seed -w @tctm/api && npm run db:seed:tasks -w @tctm/api",
+    "db:reset": "npm run db:drop -w @tctm/api && npm run db:create -w @tctm/api && npm run db:migrate -w @tctm/api && npm run db:seed -w @tctm/api",
     "db:generate": "npm run db:generate -w @tctm/api",
     "db:studio": "npm run db:studio -w @tctm/api"
   },

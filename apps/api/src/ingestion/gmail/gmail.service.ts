@@ -13,6 +13,10 @@ import { resolveGmailClient, ResolvedGmail } from './gmail-auth';
 
 type SignalInsert = typeof signals.$inferInsert;
 
+// Forward markers across clients: Gmail/Apple ("Forwarded message"/"Begin forwarded message") and
+// Outlook ("-----Original Message-----"). Used to detect forwards and split the note from the body.
+const FORWARD_MARKER = /-{2,}\s*forwarded message|begin forwarded message|-{2,}\s*original message/i;
+
 @Injectable()
 export class GmailService {
   private readonly logger = new Logger(GmailService.name);
@@ -96,12 +100,22 @@ export class GmailService {
     // Skip auto-senders
     if (isAutoSender(authorEmail)) return;
 
-    const body = this.extractBody(msg.data.payload);
-    if (!body.trim()) return;
+    const rawBody = this.extractBody(msg.data.payload);
+    if (!rawBody.trim()) return;
 
-    // Classify sub-source
-    const entity = await this.entities.resolveByEmail(authorEmail);
-    const subSource = entity ? 'gmail_vip' : 'gmail_cold';
+    // The mailbox is a task dropbox. A forward is a deliberate capture: classify by intent (note vs
+    // bare), not by sender. Non-forwards fall back to sender-based vip/cold.
+    const fwd = this.parseForward(rawBody);
+    let subSource: string;
+    let body: string;
+    if (fwd.isForward) {
+      subSource = fwd.note ? 'gmail_forward' : 'gmail_capture';
+      body = this.buildForwardBody(fwd);
+    } else {
+      const entity = await this.entities.resolveByEmail(authorEmail);
+      subSource = entity ? 'gmail_vip' : 'gmail_cold';
+      body = this.cleanBody(rawBody);
+    }
 
     const signal: SignalInsert = {
       source: 'gmail',
@@ -111,7 +125,7 @@ export class GmailService {
       status: 'pending',
       payload: {
         title: subject || 'No subject',
-        body: this.cleanBody(body),
+        body,
         author: { name: authorName, email: authorEmail },
         url: `https://mail.google.com/mail/u/0/#inbox/${messageId}`,
         threadId: msg.data.threadId ?? undefined,
@@ -180,8 +194,37 @@ export class GmailService {
       .trim();
   }
 
+  /**
+   * Split a forwarded email into the forwarder's note (text above the first forward marker) and the
+   * forwarded email itself. `note` empty = a bare forward (deliberate capture). Non-forward → isForward
+   * false. The split point is the first marker so nested Fwd-of-Fwd content stays inside `forwarded`.
+   */
+  parseForward(body: string): { isForward: boolean; note: string; forwarded: string } {
+    const m = FORWARD_MARKER.exec(body);
+    if (!m) return { isForward: false, note: '', forwarded: '' };
+    return { isForward: true, note: body.slice(0, m.index).trim(), forwarded: body.slice(m.index).trim() };
+  }
+
+  /** Labeled body so the extractor can weight the note over the forwarded content (Slack-style). */
+  private buildForwardBody(fwd: { note: string; forwarded: string }): string {
+    return [
+      'This email was forwarded into your task inbox.',
+      `Forwarder's note: ${fwd.note || '(none — forwarded as-is)'}`,
+      '',
+      'Forwarded email (source of the task):',
+      fwd.forwarded,
+    ].join('\n').slice(0, 4000);
+  }
+
   cleanBody(body: string): string {
-    // Remove quoted replies (lines starting with >)
+    // Forwarded emails: the forwarded original IS the payload — and it's frequently '>'-quoted and
+    // sits below the forwarder's signature. Stripping quotes/sigs here would gut it (leaving only the
+    // "Forwarded message" header), so keep the whole thing for forwards.
+    if (FORWARD_MARKER.test(body)) {
+      return body.trim().slice(0, 4000);
+    }
+
+    // Replies / direct mail: drop quoted history and signature blocks to reduce noise.
     const lines = body.split('\n');
     const cleaned: string[] = [];
     for (const line of lines) {
