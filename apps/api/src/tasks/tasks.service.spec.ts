@@ -393,6 +393,34 @@ describe('TasksService', () => {
     });
   });
 
+  // ── getNewCounts ──────────────────────────────────────────────
+
+  describe('getNewCounts', () => {
+    it('counts new items per bucket for the provided watermarks (active, snoozed, filtered order)', async () => {
+      queryResults = [
+        [{ count: 2 }], // active
+        [{ count: 1 }], // snoozed
+        [{ count: 5 }], // filtered
+      ];
+
+      const counts = await service.getNewCounts({
+        active: '2026-06-01T00:00:00Z',
+        snoozed: '2026-06-01T00:00:00Z',
+        filtered: '2026-06-01T00:00:00Z',
+      });
+
+      expect(counts).toEqual({ active: 2, snoozed: 1, filtered: 5 });
+    });
+
+    it('returns 0 for buckets with no watermark and does not query them', async () => {
+      queryResults = [[{ count: 3 }]]; // only the active query should run
+
+      const counts = await service.getNewCounts({ active: '2026-06-01T00:00:00Z' });
+
+      expect(counts).toEqual({ active: 3, snoozed: 0, filtered: 0 });
+    });
+  });
+
   // ── edit ──────────────────────────────────────────────────────
 
   describe('edit', () => {

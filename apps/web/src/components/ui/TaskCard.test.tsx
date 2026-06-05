@@ -157,6 +157,39 @@ describe('TaskCard — active flavor', () => {
     renderCard({ task: mockTask({ dueAt: '2027-06-15T12:00:00Z' }), flavor: 'active' });
     expect(screen.getByText('Jun 15')).toBeInTheDocument();
   });
+
+  it('renders the priority as an editable button when onChangePriority is provided', () => {
+    renderCard({ task: mockTask({ priority: 'high' }), flavor: 'active', onChangePriority: vi.fn() });
+    expect(screen.getByRole('button', { name: 'Change priority' })).toBeInTheDocument();
+  });
+
+  it('opens the priority menu and calls onChangePriority on select, not onSelect', async () => {
+    const onChangePriority = vi.fn();
+    const onSelect = vi.fn();
+    renderCard({ task: mockTask({ priority: 'high' }), flavor: 'active', onChangePriority, onSelect });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Change priority' }));
+    await user.click(screen.getByText('Low'));
+    expect(onChangePriority).toHaveBeenCalledWith('task-1', 'low');
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+});
+
+describe('TaskCard — isNew affordance', () => {
+  it('renders a "New" chip when isNew', () => {
+    renderCard({ task: mockTask(), flavor: 'active', isNew: true });
+    expect(screen.getByText('New')).toBeInTheDocument();
+  });
+
+  it('does not render a "New" chip by default', () => {
+    renderCard({ task: mockTask(), flavor: 'active' });
+    expect(screen.queryByText('New')).not.toBeInTheDocument();
+  });
+
+  it('applies the highlight ring when isNew', () => {
+    const { container } = renderCard({ task: mockTask(), flavor: 'active', isNew: true });
+    expect((container.firstChild as HTMLElement).className).toContain('ring-1');
+  });
 });
 
 describe('TaskCard — done flavor', () => {

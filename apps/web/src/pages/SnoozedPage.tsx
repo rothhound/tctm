@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import type { TaskDto } from '@tctm/shared';
 import { useGetSnoozedTasksQuery, useClearReminderMutation } from '../store/api';
+import { markBucketSeen } from '../store/bucketWatermarks';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useTaskRoute } from '../hooks/useTaskRoute';
 import { useTaskFilters } from '../hooks/useTaskFilters';
@@ -13,6 +15,9 @@ export function SnoozedPage() {
   const { data: tasks, isLoading } = useGetSnoozedTasksQuery();
   const [clearReminder] = useClearReminderMutation();
   const { selectedTaskId, openTask, closeTask } = useTaskRoute('/snoozed');
+
+  // Opening this bucket acknowledges it — clears the nav badge.
+  useEffect(() => { markBucketSeen('snoozed'); }, []);
 
   const { filtered, filterBar, hasActiveFilters, totalCount, filteredCount } = useTaskFilters(tasks, {
     dateField: 'reminderAt',

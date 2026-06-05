@@ -1,7 +1,8 @@
-import { useNavigate } from 'react-router-dom';
+import { SettingsBreadcrumb } from '../../components/layout/SettingsBreadcrumb';
 import { useGetMetricsQuery } from '../../store/api';
 import { usePageTitle } from '../../hooks/usePageTitle';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
+import { EmptyState } from '../../components/ui/EmptyState';
 
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
@@ -24,27 +25,27 @@ function MetricRow({ label, value }: { label: string; value: string | number }) 
 
 export function MetricsPage() {
   usePageTitle('Metrics');
-  const navigate = useNavigate();
   const { data: metrics, isLoading } = useGetMetricsQuery({ days: 30 });
 
-  if (isLoading) return <LoadingSpinner />;
-  if (!metrics) return null;
-
-  const signalEntries = Object.entries(metrics.signalsBySource ?? {}) as [string, number][];
-  const taskEntries = Object.entries(metrics.tasksByStatus ?? {}) as [string, number][];
+  const signalEntries = Object.entries(metrics?.signalsBySource ?? {}) as [string, number][];
+  const taskEntries = Object.entries(metrics?.tasksByStatus ?? {}) as [string, number][];
 
   return (
     <div className="flex flex-col flex-1 min-h-0 min-w-0">
       <div className="shrink-0 px-4 md:px-0 mb-1 md:mb-4">
-        <button onClick={() => navigate('/settings')} className="flex items-center gap-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors mb-2">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M8.5 3L4.5 7L8.5 11" /></svg>
-          Settings
-        </button>
-        <h1 className="text-lg font-semibold text-[var(--color-text)]">Metrics</h1>
-        <p className="text-xs text-[var(--color-text-muted)] mt-1">Last 30 days</p>
+        <SettingsBreadcrumb
+          current="Metrics"
+          description="Signal volume, LLM cost, and extraction ratio. Last 30 days."
+        />
       </div>
 
-      <div className="overflow-y-auto flex-1 min-h-0 px-3 md:px-0 space-y-4">
+      <div className="overflow-y-auto flex-1 min-h-0 px-3 md:px-0 space-y-3">
+        {isLoading ? (
+          <LoadingSpinner />
+        ) : !metrics ? (
+          <EmptyState message="No metrics yet." />
+        ) : (
+          <>
         {/* Top stats */}
         <div className="grid grid-cols-2 gap-3">
           <StatCard
@@ -83,6 +84,8 @@ export function MetricsPage() {
             ))}
           </div>
         </div>
+          </>
+        )}
       </div>
     </div>
   );

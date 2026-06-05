@@ -57,10 +57,12 @@ describe('AuditLogPage', () => {
     expect(screen.getByText(/500 in/)).toBeInTheDocument();
   });
 
-  it('shows filter buttons', () => {
+  it('shows the purpose filter dropdown with its options', async () => {
     mockedQuery.mockReturnValue({ data: [], isLoading: false } as any);
     renderPage();
-    expect(screen.getByText('All')).toBeInTheDocument();
+    const trigger = screen.getByRole('button', { name: /Purpose/ });
+    expect(trigger).toBeInTheDocument();
+    await userEvent.click(trigger);
     expect(screen.getByText('Extract')).toBeInTheDocument();
     expect(screen.getByText('Judge')).toBeInTheDocument();
   });

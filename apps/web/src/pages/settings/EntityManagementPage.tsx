@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { SettingsBreadcrumb } from '../../components/layout/SettingsBreadcrumb';
 import { useGetEntitiesQuery, useCreateEntityMutation, useDeleteEntityMutation } from '../../store/api';
 import { usePageTitle } from '../../hooks/usePageTitle';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
@@ -14,7 +14,6 @@ const TYPE_STYLES: Record<string, { bg: string; text: string; label: string }> =
 
 export function EntityManagementPage() {
   usePageTitle('Contacts & Entities');
-  const navigate = useNavigate();
   const { data: entities, isLoading } = useGetEntitiesQuery();
   const [createEntity] = useCreateEntityMutation();
   const [deleteEntity] = useDeleteEntityMutation();
@@ -39,25 +38,26 @@ export function EntityManagementPage() {
     (e.context ?? '').toLowerCase().includes(search.toLowerCase()),
   );
 
-  if (isLoading) return <LoadingSpinner />;
-
   return (
     <div className="flex flex-col flex-1 min-h-0 min-w-0">
       {/* Header */}
       <div className="shrink-0 px-4 md:px-0 mb-1 md:mb-4">
-        <button onClick={() => navigate('/settings')} className="flex items-center gap-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors mb-2">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M8.5 3L4.5 7L8.5 11" /></svg>
-          Settings
-        </button>
-        <div className="flex items-center justify-between">
-          <h1 className="text-lg font-semibold text-[var(--color-text)]">Contacts & Entities</h1>
-          <button
-            onClick={() => setShowForm(!showForm)}
-            className="text-xs px-3 py-1.5 rounded-md bg-[var(--color-primary)] text-white hover:opacity-90 transition-opacity"
-          >
-            {showForm ? 'Cancel' : '+ Add'}
-          </button>
-        </div>
+        <SettingsBreadcrumb
+          current="Contacts & Entities"
+          description="Add people, companies, or deals to improve extraction accuracy."
+          actions={
+            <button
+              onClick={() => setShowForm(!showForm)}
+              className={`inline-flex items-center px-3 py-1.5 rounded-md text-sm whitespace-nowrap border transition-colors ${
+                showForm
+                  ? 'bg-[var(--color-surface)] text-[var(--color-text)] border-[var(--color-border)] hover:bg-[var(--color-surface-alt)]'
+                  : 'bg-[var(--color-primary)] text-white border-[var(--color-primary)] hover:opacity-90'
+              }`}
+            >
+              {showForm ? 'Cancel' : '+ Add'}
+            </button>
+          }
+        />
       </div>
 
       {/* Search — sticky above the scroll area */}
@@ -119,8 +119,10 @@ export function EntityManagementPage() {
         )}
 
         {/* List */}
-        {filtered.length === 0 && !showForm && (
-          <EmptyState message={search ? 'No entities match your search.' : 'No entities yet. Add people, companies, or deals to improve extraction accuracy.'} />
+        {isLoading && <LoadingSpinner />}
+
+        {!isLoading && filtered.length === 0 && !showForm && (
+          <EmptyState message={search ? 'No entities match your search.' : 'No entities yet.'} />
         )}
 
         {filtered.length > 0 && (
@@ -155,9 +157,11 @@ export function EntityManagementPage() {
           </div>
         )}
 
-        <p className="text-[10px] text-[var(--color-text-muted)] text-center pb-4">
-          {filtered.length} {filtered.length === 1 ? 'entity' : 'entities'}
-        </p>
+        {!isLoading && filtered.length > 0 && (
+          <p className="text-[10px] text-[var(--color-text-muted)] text-center pb-4">
+            {filtered.length} {filtered.length === 1 ? 'entity' : 'entities'}
+          </p>
+        )}
       </div>
     </div>
   );

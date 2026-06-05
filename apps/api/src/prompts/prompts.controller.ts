@@ -6,19 +6,19 @@ export class PromptsController {
   constructor(private readonly prompts: PromptsService) {}
 
   @Get()
-  list(@Query('purpose') purpose: 'extract' | 'judge' | 'snooze' | 'resolve') {
+  list(@Query('purpose') purpose: 'extract' | 'judge') {
     return this.prompts.listVersions(purpose);
   }
 
   @Get('active/:purpose')
-  getActive(@Param('purpose') purpose: 'extract' | 'judge' | 'snooze' | 'resolve') {
+  getActive(@Param('purpose') purpose: 'extract' | 'judge') {
     return this.prompts.getActivePrompt(purpose);
   }
 
   @Post()
   create(
     @Body() body: {
-      purpose: 'extract' | 'judge' | 'snooze' | 'resolve';
+      purpose: 'extract' | 'judge';
       content: string;
       metadata?: { createdBy?: string; reason?: string };
     },

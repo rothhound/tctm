@@ -50,10 +50,14 @@ gcloud pubsub topics add-iam-policy-binding gmail-push \
   --project=<project>
 
 # Create push subscription
+# --push-auth-token-audience is REQUIRED: the webhook (gmail.controller.ts) verifies the OIDC
+# token's `aud` against GOOGLE_CLIENT_ID. Without this flag Pub/Sub defaults `aud` to the push
+# endpoint URL, so every push fails JWT verification (401) and only the boot/3am catch-up reads mail.
 gcloud pubsub subscriptions create gmail-push-sub \
   --topic=gmail-push \
   --push-endpoint=https://<domain>/api/webhooks/gmail/push \
   --push-auth-service-account=<service-account>@<project>.iam.gserviceaccount.com \
+  --push-auth-token-audience=<GOOGLE_CLIENT_ID> \
   --ack-deadline=60 \
   --project=<project>
 ```
@@ -269,12 +273,15 @@ if (!timingSafeEqual(Buffer.from(expected), Buffer.from(signature))) {
 |------|-------|-----|---------|
 | **@tctm mention** | `app_mention` | **partner only** (`PARTNER_SLACK_USER_ID`) | explicit → `slack_capture` → **bypasses the judge** → inbox |
 | **🎯 reaction** | `reaction_added` (`SLACK_TASK_REACTION`, default `dart`) | **partner only** | explicit → `slack_reaction` → **bypasses the judge** → inbox |
-| **Passive** | `message.channels` / `message.groups` | **anyone except the partner** | anchored → `slack_channel` → normal extractor → judge → thresholds |
+| **Passive — directly addressed** | `message.channels` / `message.groups` | **anyone except the partner** | `@`-tag or name anchor → `slack_mention` → extractor → judge → **lenient** thresholds |
+| **Passive — thread only** | `message.channels` / `message.groups` | **anyone except the partner** | thread anchor only → `slack_channel` → extractor → judge → **strict** thresholds |
 
 **Anchoring (passive path only).** A passive channel message is captured only when it references the partner — otherwise channel noise is overwhelming. A message anchors when any of:
-- it `@`-tags the partner (`<@PARTNER_SLACK_USER_ID>`), OR
-- its text names the partner — `PARTNER_NAME` or any `PARTNER_ALIASES` entry (env-driven, comma-separated, case-insensitive, word-boundary matched), OR
-- it lands in a thread the partner has posted in (`conversations.replies` contains the partner).
+- it `@`-tags the partner (`<@PARTNER_SLACK_USER_ID>`) — **directly addressed → `slack_mention`**, OR
+- its text names the partner — `PARTNER_NAME` or any `PARTNER_ALIASES` entry (env-driven, comma-separated, case-insensitive, word-boundary matched) — **directly addressed → `slack_mention`**, OR
+- it lands in a thread the partner has posted in (`conversations.replies` contains the partner) — **thread only → `slack_channel`**.
+
+A direct address (`@`-tag or name) is a strong "this is for you" signal, so `slack_mention` uses **lenient** thresholds (skipBelow 0.3/0.3, autoCreate 0.7) — genuine asks reach Active while the judge still filters obvious non-tasks. Being merely present in a thread is weaker, so `slack_channel` stays **conservative** (skipBelow 0.5, autoCreate 0.9). An un-anchored message (addressed to no one) is **not** captured — use 🎯 / @tctm for those.
 
 The partner's **own** messages are never captured passively (`event.user === PARTNER_SLACK_USER_ID` is dropped).
 

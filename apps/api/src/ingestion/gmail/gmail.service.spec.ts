@@ -125,6 +125,8 @@ describe('GmailService', () => {
                 GOOGLE_CLIENT_ID: 'client-id',
                 GOOGLE_CLIENT_SECRET: 'client-secret',
                 GMAIL_REFRESH_TOKEN: 'refresh-token',
+                GMAIL_IMPERSONATE_SUBJECT: 'tctm@svangel.com',
+                GMAIL_PRIORITY_SENDERS: 'vip@external.com,@accel.com',
               };
               return map[key] ?? fallback ?? '';
             }),
@@ -554,37 +556,63 @@ describe('GmailService', () => {
       expect(mockDb.insert).not.toHaveBeenCalled();
     });
 
-    it('sets subSource to gmail_vip when entity exists', async () => {
+    it('sets subSource to gmail_dropbox for a direct (non-forward) email — the whole mailbox is a dropbox', async () => {
       setupHistoryWithMessage(
         makeMessageResponse({ from: 'partner@fund.com' }),
       );
       queryResults.push([{ id: 'sig-1' }]);
       queryResults.push(undefined);
 
-      mockEntities.resolveByEmail.mockResolvedValue({ id: 'entity-1', canonicalName: 'Partner' });
-
       await service.processHistoryNotification('10001');
 
       const insertCall = mockDb.insert().values;
       expect(insertCall).toHaveBeenCalledWith(
-        expect.objectContaining({ subSource: 'gmail_vip' }),
+        expect.objectContaining({ subSource: 'gmail_dropbox' }),
       );
     });
 
-    it('sets subSource to gmail_cold when entity is null', async () => {
+    it('sets subSource to gmail_dropbox regardless of sender', async () => {
       setupHistoryWithMessage(
         makeMessageResponse({ from: 'stranger@random.com' }),
       );
       queryResults.push([{ id: 'sig-1' }]);
       queryResults.push(undefined);
 
-      mockEntities.resolveByEmail.mockResolvedValue(null);
+      await service.processHistoryNotification('10001');
+
+      const insertCall = mockDb.insert().values;
+      expect(insertCall).toHaveBeenCalledWith(
+        expect.objectContaining({ subSource: 'gmail_dropbox' }),
+      );
+    });
+
+    it('sets subSource to gmail_priority for the firm domain (svangel.com)', async () => {
+      setupHistoryWithMessage(
+        makeMessageResponse({ from: 'Topher <topher@svangel.com>' }),
+      );
+      queryResults.push([{ id: 'sig-1' }]);
+      queryResults.push(undefined);
 
       await service.processHistoryNotification('10001');
 
       const insertCall = mockDb.insert().values;
       expect(insertCall).toHaveBeenCalledWith(
-        expect.objectContaining({ subSource: 'gmail_cold' }),
+        expect.objectContaining({ subSource: 'gmail_priority' }),
+      );
+    });
+
+    it('sets subSource to gmail_priority for a configured priority sender / domain', async () => {
+      setupHistoryWithMessage(
+        makeMessageResponse({ from: 'Dana <dana@accel.com>' }), // @accel.com is in GMAIL_PRIORITY_SENDERS
+      );
+      queryResults.push([{ id: 'sig-1' }]);
+      queryResults.push(undefined);
+
+      await service.processHistoryNotification('10001');
+
+      const insertCall = mockDb.insert().values;
+      expect(insertCall).toHaveBeenCalledWith(
+        expect.objectContaining({ subSource: 'gmail_priority' }),
       );
     });
 
@@ -611,7 +639,7 @@ describe('GmailService', () => {
       expect(insertCall).toHaveBeenCalledWith(
         expect.objectContaining({
           source: 'gmail',
-          subSource: 'gmail_cold',
+          subSource: 'gmail_dropbox',
           externalId: 'msg-1',
           dedupKey: 'gmail:msg-1',
           status: 'pending',

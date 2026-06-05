@@ -8,7 +8,6 @@ describe('Settings', () => {
     cy.visit('/settings');
     cy.contains('h1', 'Settings').should('be.visible');
     cy.contains('Contacts & Entities').should('be.visible');
-    cy.contains('Source Thresholds').should('be.visible');
     cy.contains('Prompt Versions').should('be.visible');
     cy.contains('Metrics').should('be.visible');
     cy.contains('Audit Log').should('be.visible');
@@ -19,12 +18,6 @@ describe('Settings', () => {
     cy.visit('/settings');
     cy.contains('Contacts & Entities').click();
     cy.url().should('include', '/settings/entities');
-  });
-
-  it('navigates to Source Thresholds', () => {
-    cy.visit('/settings');
-    cy.contains('Source Thresholds').click();
-    cy.url().should('include', '/settings/thresholds');
   });
 
   it('navigates to Prompt Versions', () => {

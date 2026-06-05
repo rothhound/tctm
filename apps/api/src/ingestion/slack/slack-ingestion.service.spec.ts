@@ -128,15 +128,15 @@ describe('SlackIngestionService', () => {
   });
 
   describe('passive channel message (anchored on the partner)', () => {
-    it('captures a channel message that @tags the partner', async () => {
+    it('captures a channel message that @tags the partner as slack_mention', async () => {
       const signal = await service.toSignal(channelEvent); // text tags <@U0123456789>
 
       expect(signal).not.toBeNull();
-      expect(signal!.subSource).toBe('slack_channel');
+      expect(signal!.subSource).toBe('slack_mention');
       expect(signal!.dedupKey).toBe('slack:C0123456789:1716100000.000200');
     });
 
-    it('captures a channel message that names the partner (alias, no @tag)', async () => {
+    it('captures a channel message that names the partner (alias, no @tag) as slack_mention', async () => {
       const signal = await service.toSignal({
         type: 'message',
         channel: 'C0123456789',
@@ -147,10 +147,10 @@ describe('SlackIngestionService', () => {
       });
 
       expect(signal).not.toBeNull();
-      expect(signal!.subSource).toBe('slack_channel');
+      expect(signal!.subSource).toBe('slack_mention');
     });
 
-    it('captures a message in a thread the partner participates in (no tag/name)', async () => {
+    it('captures a thread message the partner is in (no tag/name) as the stricter slack_channel', async () => {
       const signal = await service.toSignal({
         type: 'message',
         channel: 'C0123456789',

@@ -1,19 +1,19 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { SettingsBreadcrumb } from '../../components/layout/SettingsBreadcrumb';
 import { useGetAuditLogQuery } from '../../store/api';
 import { usePageTitle } from '../../hooks/usePageTitle';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { FilterDropdown } from '../../components/ui/FilterDropdown';
 
-const FILTERS = [
-  { key: '', label: 'All' },
-  { key: 'extract', label: 'Extract' },
-  { key: 'judge', label: 'Judge' },
-] as const;
+const PURPOSE_OPTIONS = [
+  { value: '', label: 'All' },
+  { value: 'extract', label: 'Extract' },
+  { value: 'judge', label: 'Judge' },
+];
 
 export function AuditLogPage() {
   usePageTitle('Audit Log');
-  const navigate = useNavigate();
   const [purpose, setPurpose] = useState<string>('');
   const { data: entries, isLoading } = useGetAuditLogQuery(
     purpose ? { purpose, limit: 50 } : { limit: 50 },
@@ -22,31 +22,22 @@ export function AuditLogPage() {
   return (
     <div className="flex flex-col flex-1 min-h-0 min-w-0">
       <div className="shrink-0 px-4 md:px-0 mb-1 md:mb-4">
-        <button onClick={() => navigate('/settings')} className="flex items-center gap-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors mb-2">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M8.5 3L4.5 7L8.5 11" /></svg>
-          Settings
-        </button>
-        <h1 className="text-lg font-semibold text-[var(--color-text)] mb-3">Audit Log</h1>
-
-        {/* Filter tabs */}
-        <div className="flex gap-1.5">
-          {FILTERS.map((f) => (
-            <button
-              key={f.key}
-              onClick={() => setPurpose(f.key)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                purpose === f.key
-                  ? 'bg-[var(--color-text)] text-white'
-                  : 'bg-[var(--color-surface)] text-[var(--color-text-muted)] border border-[var(--color-border)] hover:bg-[var(--color-surface-alt)]'
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
+        <SettingsBreadcrumb
+          current="Audit Log"
+          description="Every LLM call with its prompt version, cost, and latency."
+          actions={
+            <FilterDropdown
+              label="Purpose"
+              value={purpose}
+              defaultValue="__none__"
+              options={PURPOSE_OPTIONS}
+              onChange={setPurpose}
+            />
+          }
+        />
       </div>
 
-      <div className="overflow-y-auto flex-1 min-h-0 px-3 md:px-0">
+      <div className="overflow-y-auto flex-1 min-h-0 px-3 md:px-0 space-y-3">
         {isLoading && <LoadingSpinner />}
         {!isLoading && (!entries || entries.length === 0) && (
           <EmptyState message="No activity yet. LLM calls will be logged here as tasks are processed." />

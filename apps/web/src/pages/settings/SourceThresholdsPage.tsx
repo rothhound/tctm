@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { SettingsBreadcrumb } from '../../components/layout/SettingsBreadcrumb';
 import { useGetSourceConfigsQuery, useUpdateSourceConfigMutation } from '../../store/api';
 import { usePageTitle } from '../../hooks/usePageTitle';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
@@ -13,28 +13,23 @@ const AXES = [
 
 export function SourceThresholdsPage() {
   usePageTitle('Source Thresholds');
-  const navigate = useNavigate();
   const { data: configs, isLoading } = useGetSourceConfigsQuery();
   const [updateConfig] = useUpdateSourceConfigMutation();
   const [editing, setEditing] = useState<string | null>(null);
 
-  if (isLoading) return <LoadingSpinner />;
-
   return (
     <div className="flex flex-col flex-1 min-h-0 min-w-0">
       <div className="shrink-0 px-4 md:px-0 mb-1 md:mb-4">
-        <button onClick={() => navigate('/settings')} className="flex items-center gap-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors mb-2">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M8.5 3L4.5 7L8.5 11" /></svg>
-          Settings
-        </button>
-        <h1 className="text-lg font-semibold text-[var(--color-text)]">Source Thresholds</h1>
-        <p className="text-xs text-[var(--color-text-muted)] mt-1">
-          Adjust auto-create thresholds per source. Higher values are more conservative.
-        </p>
+        <SettingsBreadcrumb
+          current="Source Thresholds"
+          description="Adjust auto-create thresholds per source. Higher values are more conservative."
+        />
       </div>
 
       <div className="overflow-y-auto flex-1 min-h-0 px-3 md:px-0 space-y-3">
-        {(configs ?? []).map((config: any) => {
+        {isLoading && <LoadingSpinner />}
+        {/* Hide connector-level rows (slack/gmail/notion) — those are managed in Settings → Connectors. */}
+        {!isLoading && (configs ?? []).filter((config: any) => !['slack', 'gmail', 'notion'].includes(config.source)).map((config: any) => {
           const isEditing = editing === config.source;
           return (
             <div

@@ -331,8 +331,11 @@ export const llmAuditLog = pgTable('llm_audit_log', {
 export const promptPurposeEnum = pgEnum('prompt_purpose', [
   'extract',    // task extraction (Opus)
   'judge',      // adversarial QC (Haiku)
-  'snooze',     // NL date parsing (Haiku)
-  'resolve',    // waiting-on resolution (Haiku)
+  // 'snooze'/'resolve' are retained as enum members only — Postgres can't cheaply drop enum values.
+  // Snooze (NL date parsing) and waiting-on resolution use inline prompts in their services with
+  // purpose='classify', not DB-driven prompt versions. Not seeded; not surfaced in the Prompts UI.
+  'snooze',
+  'resolve',
 ]);
 
 export const promptVersions = pgTable('prompt_versions', {

@@ -285,6 +285,58 @@ export class TasksService {
     return { pending, done, total: pending + done, filtered };
   }
 
+  /**
+   * Per-bucket "new since you last looked" counts for the nav badges. For each bucket the client
+   * passes the timestamp it last acknowledged; we count items in that bucket created after it.
+   * A missing timestamp yields 0 (bucket not yet baselined → nothing to flag).
+   */
+  async getNewCounts(since: { active?: string; snoozed?: string; filtered?: string }) {
+    const now = new Date();
+    const out = { active: 0, snoozed: 0, filtered: 0 };
+
+    // The client watermark is a task's createdAt serialized to millisecond precision, but Postgres
+    // stores defaultNow() at microsecond precision — so a plain `createdAt > watermark` always counts
+    // the boundary task (…123456 > …123000). Truncate to ms so the comparison matches the client.
+    const newerThan = (iso: string) => sql`date_trunc('milliseconds', ${tasks.createdAt}) > ${new Date(iso)}`;
+
+    if (since.active) {
+      const [r] = await this.db.select({ count: count() }).from(tasks).where(and(
+        eq(tasks.status, 'pending'),
+        eq(tasks.archived, false),
+        eq(tasks.reported, false),
+        isNull(tasks.parentTaskId),
+        or(isNull(tasks.reminderAt), lte(tasks.reminderAt, now)),
+        notDismissed,
+        newerThan(since.active),
+      ));
+      out.active = Number(r?.count ?? 0);
+    }
+
+    if (since.snoozed) {
+      const [r] = await this.db.select({ count: count() }).from(tasks).where(and(
+        eq(tasks.archived, false),
+        eq(tasks.reported, false),
+        isNull(tasks.parentTaskId),
+        gte(tasks.reminderAt, now),
+        notDismissed,
+        newerThan(since.snoozed),
+      ));
+      out.snoozed = Number(r?.count ?? 0);
+    }
+
+    if (since.filtered) {
+      const [r] = await this.db.select({ count: count() }).from(tasks).where(and(
+        eq(tasks.triage, 'dismissed'),
+        eq(tasks.archived, false),
+        eq(tasks.reported, false),
+        newerThan(since.filtered),
+      ));
+      out.filtered = Number(r?.count ?? 0);
+    }
+
+    return out;
+  }
+
   // ============================================================================
   // User actions
   // ============================================================================

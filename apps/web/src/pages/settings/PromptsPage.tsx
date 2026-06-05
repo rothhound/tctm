@@ -1,20 +1,18 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { SettingsBreadcrumb } from '../../components/layout/SettingsBreadcrumb';
 import { useGetPromptVersionsQuery, useActivatePromptVersionMutation } from '../../store/api';
 import { usePageTitle } from '../../hooks/usePageTitle';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { FilterDropdown } from '../../components/ui/FilterDropdown';
 
-const PURPOSES = [
-  { key: 'extract', label: 'Extract' },
-  { key: 'judge', label: 'Judge' },
-  { key: 'snooze', label: 'Snooze' },
-  { key: 'resolve', label: 'Resolve' },
-] as const;
+const PURPOSE_OPTIONS = [
+  { value: 'extract', label: 'Extract' },
+  { value: 'judge', label: 'Judge' },
+];
 
 export function PromptsPage() {
   usePageTitle('Prompt Versions');
-  const navigate = useNavigate();
   const [purpose, setPurpose] = useState<string>('extract');
   const { data: versions, isLoading } = useGetPromptVersionsQuery(purpose);
   const [activate] = useActivatePromptVersionMutation();
@@ -22,28 +20,25 @@ export function PromptsPage() {
   return (
     <div className="flex flex-col flex-1 min-h-0 min-w-0">
       <div className="shrink-0 px-4 md:px-0 mb-1 md:mb-4">
-        <button onClick={() => navigate('/settings')} className="flex items-center gap-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors mb-2">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M8.5 3L4.5 7L8.5 11" /></svg>
-          Settings
-        </button>
-        <h1 className="text-lg font-semibold text-[var(--color-text)] mb-3">Prompt Versions</h1>
-
-        {/* Purpose tabs */}
-        <div className="flex gap-1.5">
-          {PURPOSES.map((p) => (
-            <button
-              key={p.key}
-              onClick={() => setPurpose(p.key)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                purpose === p.key
-                  ? 'bg-[var(--color-text)] text-white'
-                  : 'bg-[var(--color-surface)] text-[var(--color-text-muted)] border border-[var(--color-border)] hover:bg-[var(--color-surface-alt)]'
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
+        <SettingsBreadcrumb
+          current="Prompt Versions"
+          description={
+            <>
+              Each LLM prompt is versioned. Pick a <span className="font-medium">purpose</span> to review its history, compare
+              performance, and activate or roll back a version — no redeploy needed.
+            </>
+          }
+          actions={
+            // Sentinel defaultValue so the current purpose always shows as the label.
+            <FilterDropdown
+              label="Purpose"
+              value={purpose}
+              defaultValue="__none__"
+              options={PURPOSE_OPTIONS}
+              onChange={setPurpose}
+            />
+          }
+        />
       </div>
 
       <div className="overflow-y-auto flex-1 min-h-0 px-3 md:px-0 space-y-3">

@@ -61,8 +61,8 @@ describe('PromptsController', () => {
     });
 
     it('passes different purposes through', async () => {
-      await controller.getActive('snooze');
-      expect(promptsService.getActivePrompt).toHaveBeenCalledWith('snooze');
+      await controller.getActive('judge');
+      expect(promptsService.getActivePrompt).toHaveBeenCalledWith('judge');
     });
   });
 
@@ -97,14 +97,14 @@ describe('PromptsController', () => {
 
     it('defaults createdBy to manual when metadata.createdBy is missing', async () => {
       const body = {
-        purpose: 'resolve' as const,
-        content: 'resolve prompt',
+        purpose: 'extract' as const,
+        content: 'extract prompt',
         metadata: { reason: 'calibration' },
       };
       await controller.create(body);
       expect(promptsService.createVersion).toHaveBeenCalledWith(
-        'resolve',
-        'resolve prompt',
+        'extract',
+        'extract prompt',
         { createdBy: 'manual', reason: 'calibration' },
       );
     });

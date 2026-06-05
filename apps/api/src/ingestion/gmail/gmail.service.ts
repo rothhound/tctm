@@ -21,13 +21,37 @@ const FORWARD_MARKER = /-{2,}\s*forwarded message|begin forwarded message|-{2,}\
 export class GmailService {
   private readonly logger = new Logger(GmailService.name);
   private gmail: gmail_v1.Gmail | null = null;
+  private readonly prioritySenders: string[];
+  private readonly firmDomain: string | null;
 
   constructor(
     @Inject(DB) private readonly db: DbType,
     @InjectQueue(QUEUES.SIGNALS_EXTRACT) private readonly extractQueue: Queue,
     private readonly config: ConfigService,
     private readonly entities: EntitiesService,
-  ) {}
+  ) {
+    // Priority senders get aggressive capture (judge bypassed). The list is `GMAIL_PRIORITY_SENDERS`
+    // (comma-separated full emails like `dana@accel.com` or domains like `@accel.com`/`accel.com`),
+    // PLUS the firm's own domain, derived from the impersonated mailbox (tctm@svangel.com → svangel.com).
+    this.prioritySenders = (this.config.get<string>('GMAIL_PRIORITY_SENDERS', '') ?? '')
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter((s) => s.length > 0);
+    const subject = (this.config.get<string>('GMAIL_IMPERSONATE_SUBJECT', '') ?? '').toLowerCase();
+    this.firmDomain = subject.includes('@') ? subject.split('@')[1] : null;
+  }
+
+  /** True when the sender is on the priority list or in the firm's own domain. */
+  private isPrioritySender(email: string): boolean {
+    const e = email.toLowerCase();
+    const domain = e.includes('@') ? e.split('@')[1] : '';
+    if (this.firmDomain && domain === this.firmDomain) return true;
+    return this.prioritySenders.some((entry) => {
+      if (entry.startsWith('@')) return domain === entry.slice(1); // "@accel.com"
+      if (!entry.includes('@')) return domain === entry; // bare "accel.com"
+      return e === entry; // full "dana@accel.com"
+    });
+  }
 
   /**
    * Process a Pub/Sub push notification — fetch history since last known historyId.
@@ -103,8 +127,9 @@ export class GmailService {
     const rawBody = this.extractBody(msg.data.payload);
     if (!rawBody.trim()) return;
 
-    // The mailbox is a task dropbox. A forward is a deliberate capture: classify by intent (note vs
-    // bare), not by sender. Non-forwards fall back to sender-based vip/cold.
+    // The whole mailbox is a task dropbox — anything sent here (and not an auto-sender) is a
+    // deliberate drop, so analyze it all. A forward is classified by intent (note vs bare); any other
+    // direct email is a lenient `gmail_dropbox` capture (judge still runs) rather than cold inbound.
     const fwd = this.parseForward(rawBody);
     let subSource: string;
     let body: string;
@@ -112,8 +137,8 @@ export class GmailService {
       subSource = fwd.note ? 'gmail_forward' : 'gmail_capture';
       body = this.buildForwardBody(fwd);
     } else {
-      const entity = await this.entities.resolveByEmail(authorEmail);
-      subSource = entity ? 'gmail_vip' : 'gmail_cold';
+      // Priority senders (list + firm domain) → aggressive capture; everyone else → lenient dropbox.
+      subSource = this.isPrioritySender(authorEmail) ? 'gmail_priority' : 'gmail_dropbox';
       body = this.cleanBody(rawBody);
     }
 

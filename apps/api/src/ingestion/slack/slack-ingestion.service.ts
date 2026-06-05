@@ -163,18 +163,25 @@ export class SlackIngestionService {
     }
     const anchor = byTag ? 'tag' : byName ? 'name/alias' : 'thread';
 
+    // Directly addressed (someone @mentioned or named the partner) is a strong "this is for you"
+    // signal → lenient slack_mention. Merely being in the thread is weaker → strict slack_channel.
+    const directlyAddressed = byTag || byName;
+    const subSource = directlyAddressed ? 'slack_mention' : 'slack_channel';
+
     const { channel, ts } = event;
     const body = await this.buildWindowBody(channel, ts, event.thread_ts);
     if (!body) return null;
 
     const channelInfo = await this.lookupChannel(channel);
-    this.logger.log(`Slack channel msg anchored by ${anchor} in #${channelInfo?.name ?? channel} → slack_channel`);
+    this.logger.log(`Slack channel msg anchored by ${anchor} in #${channelInfo?.name ?? channel} → ${subSource}`);
     return this.buildSignal({
-      subSource: 'slack_channel',
+      subSource,
       channel,
       ts,
       threadTs: event.thread_ts,
-      title: `Slack #${channelInfo?.name ?? 'channel'} — request mentioning you`,
+      title: directlyAddressed
+        ? `Slack #${channelInfo?.name ?? 'channel'} — request mentioning you`
+        : `Slack #${channelInfo?.name ?? 'channel'} — thread you're in`,
       body,
       authorUserId: event.user,
       raw: event,

@@ -68,8 +68,12 @@ export function useAllTasks() {
     return () => clearTimeout(refetchTimer.current);
   }, [mutationKey]);
 
-  // Live-inbox polling: revalidate the Active list every 30s while the tab is visible, and
-  // immediately when the tab regains focus — so ingested tasks appear without a manual refresh.
+  const refetch = useCallback(() => setRefetchKey((k) => k + 1), []);
+
+  // Live-inbox polling: revalidate the Active list every 30s while visible, and immediately when
+  // the window regains focus / reconnects. We mirror RTK Query's refetchOnFocus/Reconnect triggers
+  // (focus + visibilitychange + online) so the list stays in lockstep with the nav badge counts —
+  // otherwise the badge (which has those triggers) updates while the list lags behind.
   useEffect(() => {
     const POLL_MS = 30_000;
     const refresh = () => {
@@ -77,9 +81,13 @@ export function useAllTasks() {
     };
     const id = setInterval(refresh, POLL_MS);
     document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    window.addEventListener('online', refresh);
     return () => {
       clearInterval(id);
       document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('online', refresh);
     };
   }, []);
 
@@ -122,6 +130,7 @@ export function useAllTasks() {
     isLoading,
     hasMore,
     loadMore,
+    refetch,
     total: accumulated.length,
     updateTaskLocally,
     removeTaskLocally,

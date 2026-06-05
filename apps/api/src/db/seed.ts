@@ -4,10 +4,24 @@ import { Pool } from 'pg';
 import { and, eq } from 'drizzle-orm';
 import { sourceConfig, promptVersions } from './schema';
 import { EXTRACTION_SYSTEM_PROMPT, JUDGE_SYSTEM_PROMPT } from '../extraction/prompts';
-import { SNOOZE_PROMPT, RESOLVE_PROMPT } from '../extraction/prompt-seeds';
 import { planPromptSeed } from './prompt-seed-plan';
 
+// Connector-level rows: the `enabled` flag pauses/resumes a whole source (gated in the extraction
+// processor by signal.source). Thresholds are unused here (routing uses the per-sub-source rows).
+// Granola's connector row IS its sub-source row ('granola'), defined below.
+const CONNECTOR_DEFAULT = {
+  enabled: true,
+  thresholds: {
+    autoCreate: { explicitness: 0, actionability: 0, addressedToUser: 0, overallConfidence: 0 },
+    skipBelow: { explicitness: 0, actionability: 0 },
+  },
+  filters: {},
+};
+
 const DEFAULT_CONFIGS = [
+  { source: 'slack', ...CONNECTOR_DEFAULT },
+  { source: 'gmail', ...CONNECTOR_DEFAULT },
+  { source: 'notion', ...CONNECTOR_DEFAULT },
   {
     source: 'granola',
     enabled: true,
@@ -27,6 +41,17 @@ const DEFAULT_CONFIGS = [
     filters: {},
   },
   {
+    // Directly @mentions or names the partner — strong "for you" signal; lenient, judge still runs.
+    source: 'slack_mention',
+    enabled: true,
+    thresholds: {
+      autoCreate: { explicitness: 0.7, actionability: 0.7, addressedToUser: 0.7, overallConfidence: 0.65 },
+      skipBelow: { explicitness: 0.3, actionability: 0.3 },
+    },
+    filters: {},
+  },
+  {
+    // Anchored only by the partner being in the thread (no tag/name) — weak signal; conservative.
     source: 'slack_channel',
     enabled: true,
     thresholds: {
@@ -84,6 +109,27 @@ const DEFAULT_CONFIGS = [
     filters: {},
   },
   {
+    // Gmail direct email to the tctm@ dropbox (not a forward) — a deliberate drop; lenient, judge runs.
+    source: 'gmail_dropbox',
+    enabled: true,
+    thresholds: {
+      autoCreate: { explicitness: 0.6, actionability: 0.65, addressedToUser: 0.5, overallConfidence: 0.6 },
+      skipBelow: { explicitness: 0.2, actionability: 0.2 },
+    },
+    filters: {},
+  },
+  {
+    // Gmail from a priority sender (GMAIL_PRIORITY_SENDERS + firm domain) — aggressive capture;
+    // thresholds zero (judge bypassed downstream).
+    source: 'gmail_priority',
+    enabled: true,
+    thresholds: {
+      autoCreate: { explicitness: 0, actionability: 0, addressedToUser: 0, overallConfidence: 0 },
+      skipBelow: { explicitness: 0, actionability: 0 },
+    },
+    filters: {},
+  },
+  {
     // Gmail bare forward (no note) — explicit partner capture; thresholds zero (judge bypassed).
     source: 'gmail_capture',
     enabled: true,
@@ -134,8 +180,6 @@ async function run() {
   const promptSeeds = [
     { purpose: 'extract' as const, content: EXTRACTION_SYSTEM_PROMPT({ partnerName: '{{PARTNER_NAME}}', partnerRole: '{{PARTNER_ROLE}}', partnerAliases: '{{PARTNER_ALIASES}}', entityGlossaryXml: '{{ENTITY_GLOSSARY}}' }) },
     { purpose: 'judge' as const, content: JUDGE_SYSTEM_PROMPT },
-    { purpose: 'snooze' as const, content: SNOOZE_PROMPT },
-    { purpose: 'resolve' as const, content: RESOLVE_PROMPT },
   ];
 
   for (const seed of promptSeeds) {

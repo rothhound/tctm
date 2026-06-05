@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import type { TaskDto } from '@tctm/shared';
 import { useGetFilteredTasksQuery, useRestoreTaskMutation } from '../store/api';
+import { markBucketSeen } from '../store/bucketWatermarks';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useTaskRoute } from '../hooks/useTaskRoute';
 import { useTaskFilters } from '../hooks/useTaskFilters';
@@ -13,6 +15,9 @@ export function FilteredPage() {
   const { data: tasks, isLoading } = useGetFilteredTasksQuery();
   const [restore] = useRestoreTaskMutation();
   const { selectedTaskId, openTask, closeTask } = useTaskRoute('/filtered');
+
+  // Opening this bucket acknowledges it — clears the nav badge.
+  useEffect(() => { markBucketSeen('filtered'); }, []);
 
   const { filtered, filterBar, hasActiveFilters, totalCount, filteredCount } = useTaskFilters(tasks, {
     dateField: 'createdAt',

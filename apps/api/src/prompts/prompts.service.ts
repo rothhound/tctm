@@ -3,7 +3,7 @@ import { and, desc, eq, max } from 'drizzle-orm';
 import { DB, DbType } from '../db/db.module';
 import { promptVersions } from '../db/schema';
 
-type PromptPurpose = 'extract' | 'judge' | 'snooze' | 'resolve';
+type PromptPurpose = 'extract' | 'judge';
 type PromptVersion = typeof promptVersions.$inferSelect;
 
 @Injectable()

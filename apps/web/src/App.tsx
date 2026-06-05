@@ -14,6 +14,7 @@ import { SourceThresholdsPage } from './pages/settings/SourceThresholdsPage';
 import { EntityManagementPage } from './pages/settings/EntityManagementPage';
 import { MetricsPage } from './pages/settings/MetricsPage';
 import { PromptsPage } from './pages/settings/PromptsPage';
+import { ConnectorsPage } from './pages/settings/ConnectorsPage';
 
 export default function App() {
   return (
@@ -41,6 +42,7 @@ export default function App() {
             <Route path="/settings/entities" element={<EntityManagementPage />} />
             <Route path="/settings/metrics" element={<MetricsPage />} />
             <Route path="/settings/prompts" element={<PromptsPage />} />
+            <Route path="/settings/connectors" element={<ConnectorsPage />} />
           </Route>
         </Route>
       </Routes>

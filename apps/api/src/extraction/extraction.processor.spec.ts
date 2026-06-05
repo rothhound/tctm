@@ -115,6 +115,22 @@ describe('SignalExtractProcessor', () => {
     expect(mockExtractor.extract).not.toHaveBeenCalled();
   });
 
+  it('skips a signal when its connector is paused', async () => {
+    selectResults.length = 0;
+    selectResults.push([mockSignal], [{ source: 'slack', enabled: false }]); // signal, then disabled connector cfg
+    mockDb.select.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        where: jest.fn().mockImplementation(() => Promise.resolve(selectResults.shift() ?? [])),
+      }),
+    });
+
+    const job = { data: { signalId: 'sig-001' } } as Job<{ signalId: string }>;
+    await processor.process(job);
+
+    expect(mockExtractor.extract).not.toHaveBeenCalled();
+    expect(mockTasksService.createFromExtraction).not.toHaveBeenCalled();
+  });
+
   it('skips signals not found in DB', async () => {
     selectResults.length = 0;
     selectResults.push([]);

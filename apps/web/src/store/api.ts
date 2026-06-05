@@ -4,6 +4,16 @@ import type { RootState } from './store';
 import { logout, setCredentials } from './authSlice';
 import type { TaskDto, TaskNoteDto, TaskCounts, LoginResponse, PaginatedResponse } from '@tctm/shared';
 
+export type IntegrationStatus = {
+  name: string;
+  state: 'ok' | 'configured' | 'inactive' | 'not_configured' | 'error';
+  detail: string;
+  signalsToday: number;
+  signalsAllTime: number;
+  paused: boolean;
+  tracks: { label: string; example: string }[];
+};
+
 const rawBaseQuery = fetchBaseQuery({
   baseUrl: '/api',
   prepareHeaders: (headers, { getState }) => {
@@ -96,6 +106,21 @@ export const api = createApi({
     getTaskCounts: builder.query<TaskCounts, void>({
       query: () => 'tasks/counts',
       providesTags: ['TaskCounts'],
+    }),
+
+    // Per-bucket "new since last looked" counts for the nav badges. Args are the client's
+    // per-bucket watermarks; a missing one yields 0 for that bucket.
+    getNewCounts: builder.query<
+      { active: number; snoozed: number; filtered: number },
+      { activeSince?: string; snoozedSince?: string; filteredSince?: string }
+    >({
+      query: (params) => ({ url: 'tasks/new-counts', params }),
+      providesTags: ['TaskCounts'],
+    }),
+
+    getIntegrationHealth: builder.query<IntegrationStatus[], void>({
+      query: () => 'health/integrations',
+      providesTags: ['SourceConfig'], // so pausing a connector (updateSourceConfig) refetches this
     }),
 
     getTask: builder.query<TaskDto, string>({
@@ -292,6 +317,8 @@ export const {
   useGetFilteredTasksQuery,
   useRestoreTaskMutation,
   useGetTaskCountsQuery,
+  useGetNewCountsQuery,
+  useGetIntegrationHealthQuery,
   useGetReportedTasksQuery,
   useGetSnoozedTasksQuery,
   useReportTaskMutation,
@@ -301,6 +328,7 @@ export const {
   useDeleteTaskNoteMutation,
   useGetAuditLogQuery,
   useSubscribePushMutation,
+  useUnsubscribePushMutation,
   useGetSourceConfigsQuery,
   useUpdateSourceConfigMutation,
   useGetEntitiesQuery,

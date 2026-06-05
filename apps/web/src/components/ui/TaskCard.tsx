@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import type { TaskDto, ReportReason } from '@tctm/shared';
+import type { TaskDto, ReportReason, TaskPriority } from '@tctm/shared';
 import { REPORT_REASON_LABELS } from '@tctm/shared';
 import { SourceIcon } from './SourceIcon';
 import { InlineDatePicker } from './InlineDatePicker';
+import { InlinePriorityPicker } from './InlinePriorityPicker';
 
 export type TaskCardFlavor = 'active' | 'done' | 'snoozed' | 'archived' | 'reported' | 'filtered';
 
@@ -10,12 +11,16 @@ interface TaskCardProps {
   task: TaskDto;
   flavor: TaskCardFlavor;
   isSelected?: boolean;
+  /** Active flavor: arrived since the user last acknowledged the inbox — gets a "New" chip + ring. */
+  isNew?: boolean;
   onSelect?: (task: TaskDto) => void;
 
   /** Active flavor: checkbox click handler (mark complete). */
   onComplete?: (taskId: string) => void;
   /** Active flavor: inline due-date change. */
   onDueDateChange?: (taskId: string, dueAt: string | null) => void;
+  /** Active flavor: inline priority change (click the pill). */
+  onChangePriority?: (taskId: string, priority: TaskPriority) => void;
 
   /** Non-active flavors: primary action button click (label is set by flavor). */
   onAction?: (taskId: string) => void;
@@ -224,7 +229,7 @@ function MetaRow({ task, flavor, onDueDateChange }: { task: TaskDto; flavor: Tas
 }
 
 // ── Main component ──────────────────────────────────────────────
-export function TaskCard({ task, flavor, isSelected, onSelect, onComplete, onDueDateChange, onAction }: TaskCardProps) {
+export function TaskCard({ task, flavor, isSelected, isNew, onSelect, onComplete, onDueDateChange, onChangePriority, onAction }: TaskCardProps) {
   const cfg = FLAVORS[flavor];
   const [dragging, setDragging] = useState(false);
   const [completing, setCompleting] = useState<false | 'fill' | 'collapse'>(false);
@@ -249,6 +254,8 @@ export function TaskCard({ task, flavor, isSelected, onSelect, onComplete, onDue
       onDragEnd={() => setDragging(false)}
       onClick={() => !completing && onSelect?.(task)}
       className={`relative bg-[var(--color-surface)] rounded-lg p-3 border border-[var(--color-border)] border-l-2 ${borderCls} cursor-pointer transition-all duration-300 group hover:shadow-sm ${
+        isNew ? 'ring-1 ring-[var(--color-primary)]/40' : ''
+      } ${
         isSelected ? '!bg-[#EDE8E0] border-[#d5cfc5]' : ''
       } ${cfg.containerOpacity} ${dragging ? 'opacity-30' : ''} ${completing === 'collapse' ? 'opacity-0 scale-[0.97] -translate-x-2' : ''}`}
     >
@@ -289,12 +296,23 @@ export function TaskCard({ task, flavor, isSelected, onSelect, onComplete, onDue
           )}
         </div>
 
-        <span
-          className="shrink-0 text-[10px] font-medium leading-none mt-1"
-          style={{ background: pill.bg, color: pill.text, padding: '3px 7px', borderRadius: 999 }}
-        >
-          {pill.label}
-        </span>
+        <div className="shrink-0 flex items-center gap-1.5 mt-1" onClick={(e) => e.stopPropagation()}>
+          {isNew && (
+            <span className="text-[10px] font-semibold leading-none px-1.5 py-[3px] rounded-full bg-[var(--color-primary-light)] text-[var(--color-primary)]">
+              New
+            </span>
+          )}
+          {isActive && onChangePriority ? (
+            <InlinePriorityPicker value={task.priority as TaskPriority} onChange={(p) => onChangePriority(task.id, p)} />
+          ) : (
+            <span
+              className="text-[10px] font-medium leading-none"
+              style={{ background: pill.bg, color: pill.text, padding: '3px 7px', borderRadius: 999 }}
+            >
+              {pill.label}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Row 2: meta on left, action / due-picker on right */}

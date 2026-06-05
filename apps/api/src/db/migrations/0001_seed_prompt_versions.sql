@@ -301,11 +301,3 @@ Output ONLY valid JSON, no preamble:
 
 { "verdict": "KEEP" | "REVIEW" | "DISMISS", "reason": "one short sentence" }$prompt$, true, '{"createdBy":"seed","reason":"Initial V1 prompt"}'::jsonb)
 ON CONFLICT ("purpose", "version") DO NOTHING;
---> statement-breakpoint
-INSERT INTO "prompt_versions" ("id", "purpose", "version", "content", "active", "metadata") VALUES
-	('1zxbi0u4', 'snooze', 1, $prompt$You parse natural language time expressions into ISO 8601 dates. The current date/time will be provided in the user message. Respond with ONLY valid JSON: {"date": "ISO8601 string or null", "confidence": 0-1, "interpretation": "what you understood"}$prompt$, true, '{"createdBy":"seed","reason":"Initial V1 prompt"}'::jsonb)
-ON CONFLICT ("purpose", "version") DO NOTHING;
---> statement-breakpoint
-INSERT INTO "prompt_versions" ("id", "purpose", "version", "content", "active", "metadata") VALUES
-	('q2944ccg', 'resolve', 1, $prompt$You determine if a new message resolves a waiting-on task. Respond with ONLY valid JSON: {"resolves": true/false, "reason": "short explanation"}$prompt$, true, '{"createdBy":"seed","reason":"Initial V1 prompt"}'::jsonb)
-ON CONFLICT ("purpose", "version") DO NOTHING;

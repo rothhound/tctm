@@ -20,6 +20,15 @@ export class TasksController {
     return this.tasks.getCounts();
   }
 
+  @Get('new-counts')
+  newCounts(
+    @Query('activeSince') activeSince?: string,
+    @Query('snoozedSince') snoozedSince?: string,
+    @Query('filteredSince') filteredSince?: string,
+  ) {
+    return this.tasks.getNewCounts({ active: activeSince, snoozed: snoozedSince, filtered: filteredSince });
+  }
+
   @Get('archived')
   archived() {
     return this.tasks.listArchived();

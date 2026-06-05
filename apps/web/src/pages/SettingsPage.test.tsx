@@ -38,7 +38,6 @@ describe('SettingsPage', () => {
   it('renders all navigation links', () => {
     renderPage();
     expect(screen.getByText('Contacts & Entities')).toBeInTheDocument();
-    expect(screen.getByText('Source Thresholds')).toBeInTheDocument();
     expect(screen.getByText('Prompt Versions')).toBeInTheDocument();
     expect(screen.getByText('Metrics')).toBeInTheDocument();
     expect(screen.getByText('Audit Log')).toBeInTheDocument();
@@ -47,7 +46,6 @@ describe('SettingsPage', () => {
   it('renders descriptions for each section', () => {
     renderPage();
     expect(screen.getByText('People, companies, funds, deals')).toBeInTheDocument();
-    expect(screen.getByText('Auto-create sensitivity per source')).toBeInTheDocument();
     expect(screen.getByText('View, activate, and rollback LLM prompts')).toBeInTheDocument();
     expect(screen.getByText('Signal volume, LLM costs, extraction ratio')).toBeInTheDocument();
     expect(screen.getByText('Every LLM call with cost and latency')).toBeInTheDocument();

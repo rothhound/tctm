@@ -36,7 +36,14 @@ const DEFAULT_THRESHOLDS: Record<string, SourceThresholds> = {
     autoCreate: { explicitness: 0.75, actionability: 0.75, addressedToUser: 0.85, overallConfidence: 0.75 },
     skipBelow: { explicitness: 0.4, actionability: 0.4 },
   },
-  // Slack channel messages anchored on the partner (tag / name / thread) — high noise, conservative
+  // Slack message that directly @mentions or names the partner — a strong "this is for you" signal;
+  // lenient but still judged so genuine asks reach Active while obvious non-tasks get filtered.
+  slack_mention: {
+    autoCreate: { explicitness: 0.7, actionability: 0.7, addressedToUser: 0.7, overallConfidence: 0.65 },
+    skipBelow: { explicitness: 0.3, actionability: 0.3 },
+  },
+  // Slack channel message anchored only by the partner being in the thread (no tag/name) — weak
+  // signal, high noise → conservative.
   slack_channel: {
     autoCreate: { explicitness: 0.9, actionability: 0.85, addressedToUser: 0.9, overallConfidence: 0.85 },
     skipBelow: { explicitness: 0.5, actionability: 0.5 },
@@ -66,6 +73,18 @@ const DEFAULT_THRESHOLDS: Record<string, SourceThresholds> = {
     autoCreate: { explicitness: 0.6, actionability: 0.65, addressedToUser: 0.6, overallConfidence: 0.6 },
     skipBelow: { explicitness: 0.2, actionability: 0.2 },
   },
+  // Gmail from a priority sender (configured list + the firm's own domain) — aggressive capture,
+  // always auto (judge bypassed); thresholds zero. Differentiates these from cold dropbox mail.
+  gmail_priority: {
+    autoCreate: { explicitness: 0, actionability: 0, addressedToUser: 0, overallConfidence: 0 },
+    skipBelow: { explicitness: 0, actionability: 0 },
+  },
+  // Gmail direct email to the tctm@ dropbox (not a forward) — a deliberate drop; lenient, judge runs
+  // so genuine non-tasks / near-duplicates still get filtered.
+  gmail_dropbox: {
+    autoCreate: { explicitness: 0.6, actionability: 0.65, addressedToUser: 0.5, overallConfidence: 0.6 },
+    skipBelow: { explicitness: 0.2, actionability: 0.2 },
+  },
   // Gmail bare forward (no note) — explicit partner capture, always auto (judge bypassed)
   gmail_capture: {
     autoCreate: { explicitness: 0, actionability: 0, addressedToUser: 0, overallConfidence: 0 },
@@ -89,7 +108,7 @@ const DEFAULT_THRESHOLDS: Record<string, SourceThresholds> = {
  * gate and the adversarial judge — the partner's intent is the QC. Passive `slack_channel` and noted
  * `gmail_forward` are NOT here; they run the normal pipeline.
  */
-const EXPLICIT_CAPTURE_SUBSOURCES = new Set(['slack_capture', 'slack_reaction', 'gmail_capture']);
+const EXPLICIT_CAPTURE_SUBSOURCES = new Set(['slack_capture', 'slack_reaction', 'gmail_capture', 'gmail_priority']);
 
 @Processor(QUEUES.SIGNALS_EXTRACT, { concurrency: 3 })
 export class SignalExtractProcessor extends WorkerHost {
@@ -115,6 +134,20 @@ export class SignalExtractProcessor extends WorkerHost {
     }
     if (signal.status !== 'pending') {
       this.logger.log(`Signal ${signalId} already processed (status=${signal.status}), skipping`);
+      return;
+    }
+
+    // Connector pause: if the source connector is disabled, don't extract (no tasks while paused).
+    const [connectorCfg] = await this.db
+      .select()
+      .from(sourceConfig)
+      .where(eq(sourceConfig.source, signal.source));
+    if (connectorCfg?.enabled === false) {
+      await this.db
+        .update(signals)
+        .set({ status: 'skipped', processedAt: new Date() })
+        .where(eq(signals.id, signalId));
+      this.logger.log(`Signal ${signalId}: connector "${signal.source}" is paused — skipped`);
       return;
     }
 
@@ -264,7 +297,7 @@ export class SignalExtractProcessor extends WorkerHost {
       this.notifications.sendPush({
         title: 'New task',
         body: task.title,
-        url: `/tasks/${taskId}`,
+        url: `/active/${taskId}`,
       }).catch(err => this.logger.error(`Push failed: ${err.message}`));
     }
   }

@@ -23,8 +23,22 @@ Cypress.Commands.add('interceptApi', (overrides = {}) => {
 
   // Counts
   cy.intercept('GET', '/api/tasks/counts', {
-    body: { pending: 0, done: 0, total: 0 },
+    body: { pending: 0, done: 0, total: 0, filtered: 0 },
   }).as('getCounts');
+
+  // Per-bucket "new since last looked" counts — drives the nav badges, fired on EVERY page.
+  // If unstubbed, this hits the real API with the test JWT → 401 → global logout → redirect to /login.
+  cy.intercept('GET', '/api/tasks/new-counts*', {
+    body: { active: 0, snoozed: 0, filtered: 0 },
+  }).as('getNewCounts');
+
+  // Filtered (agent-dismissed) list + connector health (also otherwise unstubbed → 401)
+  cy.intercept('GET', '/api/tasks/filtered', { body: [] }).as('getFiltered');
+  cy.intercept('GET', '/api/health/integrations', { body: [] }).as('getIntegrations');
+
+  // Web-push subscribe/unsubscribe (Settings → Notifications)
+  cy.intercept('POST', '/api/push/subscribe', { statusCode: 200, body: { subscribed: true } }).as('subscribePush');
+  cy.intercept('DELETE', '/api/push/unsubscribe', { statusCode: 204 }).as('unsubscribePush');
 
   // Single task
   cy.intercept('GET', '/api/tasks/task-*', { body: {} }).as('getTask');

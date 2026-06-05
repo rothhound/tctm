@@ -56,11 +56,12 @@ describe('Active Page', () => {
       // List view shows the "Pending (N)" section header
       cy.contains('Pending (3)').should('be.visible');
 
-      // Kanban view replaces the Pending header with priority columns;
-      // tasks themselves remain visible
+      // Kanban view replaces the Pending header with priority columns. On the mobile viewport the
+      // board shows one priority column at a time (opening the busiest one first), so a given task is
+      // rendered but may sit in a non-active column — assert it still exists rather than is visible.
       cy.get('button[title="Kanban view"]').click();
       cy.contains('Pending (3)').should('not.exist');
-      cy.contains('Send cap table to Roelof').should('be.visible');
+      cy.contains('Send cap table to Roelof').should('exist');
 
       // Switch back to list view — the Pending header returns
       cy.get('button[title="List view"]').click();

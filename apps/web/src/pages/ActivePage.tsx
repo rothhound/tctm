@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import type { TaskDto, TaskPriority } from '@tctm/shared';
 import { useUpdateTaskMutation, useCompleteTaskMutation } from '../store/api';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -8,6 +8,8 @@ import { TaskPanel } from '../components/ui/TaskPanel';
 import { ViewToggle, useViewMode } from '../components/ui/ViewToggle';
 import { EmptyState } from '../components/ui/EmptyState';
 import { useAllTasks } from '../hooks/useAllTasks';
+import { useNewSince } from '../hooks/useNewSince';
+import { useBucketBadges } from '../hooks/useBucketBadges';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { useTaskRoute } from '../hooks/useTaskRoute';
 
@@ -17,6 +19,23 @@ const PRIORITY_COLUMNS: { key: TaskPriority; label: string; dot: string }[] = [
   { key: 'low', label: 'Low', dot: '#97C459' },
   { key: 'none', label: 'None', dot: '#d5d0c8' },
 ];
+
+// Which priority column to open first on mobile: the busiest one, weighted by priority
+// (count × weight). So a full High column wins, but a heavily-loaded Mid beats a near-empty High,
+// and an empty High never shows first. Falls back to High (0) when there's nothing.
+const PRIORITY_WEIGHT: Record<TaskPriority, number> = { high: 4, mid: 3, low: 2, none: 1 };
+function bestColumnIndex(groups: Record<TaskPriority, TaskDto[]>): number {
+  let best = 0;
+  let bestScore = -1;
+  PRIORITY_COLUMNS.forEach((col, i) => {
+    const score = (groups[col.key]?.length ?? 0) * PRIORITY_WEIGHT[col.key];
+    if (score > bestScore) {
+      bestScore = score;
+      best = i;
+    }
+  });
+  return best;
+}
 
 function sortByCreated(tasks: TaskDto[]): TaskDto[] {
   return [...tasks].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -67,11 +86,12 @@ function DropZone({ onDrop, children, className }: { onDrop: (taskId: string) =>
 }
 
 // ── Single priority column ────────────────────────────────────
-function PriorityColumn({ priority, label, dot, tasks, onSelect, selectedTaskId, onDueDateChange, onCheckboxComplete, onChangePriority }: {
+function PriorityColumn({ priority, label, dot, tasks, newTaskIds, onSelect, selectedTaskId, onDueDateChange, onCheckboxComplete, onChangePriority }: {
   priority: TaskPriority;
   label: string;
   dot: string;
   tasks: TaskDto[];
+  newTaskIds: Set<string>;
   onSelect: (t: TaskDto) => void;
   selectedTaskId?: string | null;
   onDueDateChange?: (taskId: string, dueAt: string | null) => void;
@@ -88,7 +108,7 @@ function PriorityColumn({ priority, label, dot, tasks, onSelect, selectedTaskId,
       <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5 px-1">
         {tasks.length === 0 && <p className="text-[11px] text-[var(--color-text-muted)] text-center py-8">Empty</p>}
         {tasks.map((t) => (
-          <TaskCard key={t.id} task={t} flavor="active" isSelected={t.id === selectedTaskId} onSelect={onSelect} onDueDateChange={onDueDateChange} onComplete={onCheckboxComplete} />
+          <TaskCard key={t.id} task={t} flavor="active" isNew={newTaskIds.has(t.id)} isSelected={t.id === selectedTaskId} onSelect={onSelect} onDueDateChange={onDueDateChange} onComplete={onCheckboxComplete} onChangePriority={onChangePriority} />
         ))}
       </div>
     </DropZone>
@@ -96,16 +116,29 @@ function PriorityColumn({ priority, label, dot, tasks, onSelect, selectedTaskId,
 }
 
 // ── Mobile Kanban — one priority column at a time with arrow nav ────
-function MobileKanbanView({ groups, onSelect, selectedTaskId, onDueDateChange, onCheckboxComplete, onChangePriority }: {
+function MobileKanbanView({ groups, newTaskIds, onSelect, selectedTaskId, onDueDateChange, onCheckboxComplete, onChangePriority }: {
   groups: Record<TaskPriority, TaskDto[]>;
+  newTaskIds: Set<string>;
   onSelect: (t: TaskDto) => void;
   selectedTaskId?: string | null;
   onDueDateChange?: (taskId: string, dueAt: string | null) => void;
   onCheckboxComplete?: (taskId: string) => void;
   onChangePriority: (taskId: string, priority: TaskPriority) => void;
 }) {
-  const [activeIdx, setActiveIdx] = useState(0);
+  const [activeIdx, setActiveIdx] = useState(() => bestColumnIndex(groups));
   const active = PRIORITY_COLUMNS[activeIdx];
+
+  // Once tasks have loaded, open on the most relevant column — but only the first time, so the
+  // user's manual column navigation (and the 30s background refetch) don't yank it back.
+  const autoPicked = useRef(false);
+  useEffect(() => {
+    if (autoPicked.current) return;
+    const total = PRIORITY_COLUMNS.reduce((n, c) => n + (groups[c.key]?.length ?? 0), 0);
+    if (total > 0) {
+      setActiveIdx(bestColumnIndex(groups));
+      autoPicked.current = true;
+    }
+  }, [groups]);
 
   return (
     <div className="flex flex-col flex-1 min-h-0 px-3 md:px-0">
@@ -152,10 +185,12 @@ function MobileKanbanView({ groups, onSelect, selectedTaskId, onDueDateChange, o
                   key={t.id}
                   task={t}
                   flavor="active"
+                  isNew={newTaskIds.has(t.id)}
                   isSelected={t.id === selectedTaskId}
                   onSelect={onSelect}
                   onDueDateChange={onDueDateChange}
                   onComplete={onCheckboxComplete}
+                  onChangePriority={onChangePriority}
                 />
               ))}
             </div>
@@ -167,8 +202,9 @@ function MobileKanbanView({ groups, onSelect, selectedTaskId, onDueDateChange, o
 }
 
 // ── Desktop List — flat sorted-by-priority list ───────────────
-function DesktopListView({ pending, hasMore, isLoadingMore, onLoadMore, onSelect, selectedTaskId, onDueDateChange, onCheckboxComplete }: {
+function DesktopListView({ pending, newTaskIds, hasMore, isLoadingMore, onLoadMore, onSelect, selectedTaskId, onDueDateChange, onCheckboxComplete, onChangePriority }: {
   pending: TaskDto[];
+  newTaskIds: Set<string>;
   hasMore: boolean;
   isLoadingMore: boolean;
   onLoadMore: () => void;
@@ -176,6 +212,7 @@ function DesktopListView({ pending, hasMore, isLoadingMore, onLoadMore, onSelect
   selectedTaskId: string | null;
   onDueDateChange?: (taskId: string, dueAt: string | null) => void;
   onCheckboxComplete: (taskId: string) => void;
+  onChangePriority: (taskId: string, priority: TaskPriority) => void;
 }) {
   const scrollRef = useInfiniteScroll(onLoadMore, hasMore, isLoadingMore);
 
@@ -189,7 +226,7 @@ function DesktopListView({ pending, hasMore, isLoadingMore, onLoadMore, onSelect
             </span>
           </div>
           <div className="space-y-1.5">
-            {pending.map((t) => <TaskCard key={t.id} task={t} flavor="active" isSelected={t.id === selectedTaskId} onSelect={onSelect} onDueDateChange={onDueDateChange} onComplete={onCheckboxComplete} />)}
+            {pending.map((t) => <TaskCard key={t.id} task={t} flavor="active" isNew={newTaskIds.has(t.id)} isSelected={t.id === selectedTaskId} onSelect={onSelect} onDueDateChange={onDueDateChange} onComplete={onCheckboxComplete} onChangePriority={onChangePriority} />)}
           </div>
         </div>
       )}
@@ -208,8 +245,9 @@ function DesktopListView({ pending, hasMore, isLoadingMore, onLoadMore, onSelect
 }
 
 // ── Kanban View (4 priority columns) ───────────────────────────
-function KanbanView({ groups, onSelect, selectedTaskId, onDueDateChange, onCheckboxComplete, onChangePriority }: {
+function KanbanView({ groups, newTaskIds, onSelect, selectedTaskId, onDueDateChange, onCheckboxComplete, onChangePriority }: {
   groups: Record<TaskPriority, TaskDto[]>;
+  newTaskIds: Set<string>;
   onSelect: (t: TaskDto) => void;
   selectedTaskId?: string | null;
   onDueDateChange?: (taskId: string, dueAt: string | null) => void;
@@ -225,6 +263,7 @@ function KanbanView({ groups, onSelect, selectedTaskId, onDueDateChange, onCheck
           label={col.label}
           dot={col.dot}
           tasks={groups[col.key]}
+          newTaskIds={newTaskIds}
           onSelect={onSelect}
           selectedTaskId={selectedTaskId}
           onDueDateChange={onDueDateChange}
@@ -244,7 +283,24 @@ export function ActivePage() {
   const [updateTask] = useUpdateTaskMutation();
   const [completeTask] = useCompleteTaskMutation();
 
-  const { tasks: allTasks, isLoading, hasMore, loadMore, updateTaskLocally, removeTaskLocally } = useAllTasks();
+  const { tasks: allTasks, isLoading, hasMore, loadMore, refetch, updateTaskLocally, removeTaskLocally } = useAllTasks();
+  const { newTaskIds, newCount, markAllSeen } = useNewSince(allTasks);
+
+  // The nav badge (getNewCounts) detects server-created tasks via its own focus/poll triggers, but
+  // task creation invalidates no client cache. When the Active badge rises, pull the list so the
+  // new tasks actually appear — keeping the board in lockstep with the badge.
+  const badges = useBucketBadges();
+  const prevActiveBadge = useRef(badges.active);
+  useEffect(() => {
+    if (badges.active > prevActiveBadge.current) refetch();
+    prevActiveBadge.current = badges.active;
+  }, [badges.active, refetch]);
+
+  // Tab badge: prefix the title with the new-task count so it's visible from another tab.
+  // Runs after usePageTitle's effect, so it owns the title once mounted.
+  useEffect(() => {
+    document.title = newCount > 0 ? `(${newCount}) TCTM | Active` : 'TCTM | Active';
+  }, [newCount]);
 
   const pendingTasks = allTasks.filter((t) => t.status === 'pending');
   const pendingSorted = sortByPriority(pendingTasks);
@@ -276,8 +332,20 @@ export function ActivePage() {
   return (
     <>
       <div className={`flex flex-col flex-1 min-h-0 min-w-0 ${kanbanBreakout}`}>
-        <div className="flex items-center justify-between mb-1 md:mb-4 px-4 md:px-0 shrink-0">
-          <h1 className="text-lg font-semibold text-[var(--color-text)]">Active</h1>
+        <div className="flex items-center justify-between gap-3 mb-1 md:mb-4 px-4 md:px-0 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <h1 className="text-lg font-semibold text-[var(--color-text)]">Active</h1>
+            {newCount > 0 && (
+              <button
+                onClick={markAllSeen}
+                title="Mark all as seen"
+                className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full bg-[var(--color-primary-light)] text-[var(--color-primary)] hover:opacity-80 transition-opacity whitespace-nowrap"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-primary)] animate-pulse" />
+                {newCount} new · Mark all seen
+              </button>
+            )}
+          </div>
           <ViewToggle mode={viewMode} onChange={setViewMode} />
         </div>
 
@@ -286,6 +354,7 @@ export function ActivePage() {
         {!(isLoading && allTasks.length === 0) && viewMode === 'list' && (
           <DesktopListView
             pending={pendingSorted}
+            newTaskIds={newTaskIds}
             hasMore={hasMore}
             isLoadingMore={isLoading}
             onLoadMore={loadMore}
@@ -293,6 +362,7 @@ export function ActivePage() {
             selectedTaskId={selectedTaskId}
             onDueDateChange={handleDueDateChange}
             onCheckboxComplete={handleCheckboxComplete}
+            onChangePriority={handleChangePriority}
           />
         )}
 
@@ -300,10 +370,10 @@ export function ActivePage() {
         {!(isLoading && allTasks.length === 0) && viewMode === 'kanban' && (
           <>
             <div className="md:hidden flex-1 min-h-0 flex flex-col">
-              <MobileKanbanView groups={grouped} onSelect={handleSelect} selectedTaskId={selectedTaskId} onDueDateChange={handleDueDateChange} onCheckboxComplete={handleCheckboxComplete} onChangePriority={handleChangePriority} />
+              <MobileKanbanView groups={grouped} newTaskIds={newTaskIds} onSelect={handleSelect} selectedTaskId={selectedTaskId} onDueDateChange={handleDueDateChange} onCheckboxComplete={handleCheckboxComplete} onChangePriority={handleChangePriority} />
             </div>
             <div className="hidden md:flex flex-1 min-h-0">
-              <KanbanView groups={grouped} onSelect={handleSelect} selectedTaskId={selectedTaskId} onDueDateChange={handleDueDateChange} onCheckboxComplete={handleCheckboxComplete} onChangePriority={handleChangePriority} />
+              <KanbanView groups={grouped} newTaskIds={newTaskIds} onSelect={handleSelect} selectedTaskId={selectedTaskId} onDueDateChange={handleDueDateChange} onCheckboxComplete={handleCheckboxComplete} onChangePriority={handleChangePriority} />
             </div>
           </>
         )}
